@@ -1,14 +1,20 @@
 var get = Ember.get, set = Ember.set;
 
 /**
+  @class
+
   Ember.HashLocation implements the location API using the browser's
   hash. At present, it relies on a hashchange event existing in the
   browser.
+
+  @extends Ember.Object
 */
-Ember.HashLocation = Ember.Object.extend({
+Ember.HashLocation = Ember.Object.extend(
+/** @scope Ember.HashLocation.prototype */ {
+
+  /** @private */
   init: function() {
     set(this, 'location', get(this, 'location') || window.location);
-    set(this, 'callbacks', Ember.A());
   },
 
   /**
@@ -41,18 +47,16 @@ Ember.HashLocation = Ember.Object.extend({
   */
   onUpdateURL: function(callback) {
     var self = this;
+    var guid = Ember.guidFor(this);
 
-    var hashchange = function() {
+    Ember.$(window).bind('hashchange.ember-location-'+guid, function() {
       var path = location.hash.substr(1);
       if (get(self, 'lastSetURL') === path) { return; }
 
       set(self, 'lastSetURL', null);
 
       callback(location.hash.substr(1));
-    };
-
-    get(this, 'callbacks').pushObject(hashchange);
-    window.addEventListener('hashchange', hashchange);
+    });
   },
 
   /**
@@ -68,11 +72,11 @@ Ember.HashLocation = Ember.Object.extend({
     return '#'+url;
   },
 
+  /** @private */
   willDestroy: function() {
-    get(this, 'callbacks').forEach(function(callback) {
-      window.removeEventListener('hashchange', callback);
-    });
-    set(this, 'callbacks', null);
+    var guid = Ember.guidFor(this);
+
+    Ember.$(window).unbind('hashchange.ember-location-'+guid);
   }
 });
 

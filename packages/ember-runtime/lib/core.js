@@ -7,16 +7,16 @@
 
 require('ember-metal');
 
-var indexOf = Ember.ArrayUtils.indexOf;
+var indexOf = Ember.EnumerableUtils.indexOf;
 
 // ........................................
 // TYPING & ARRAY MESSAGING
 //
 
 var TYPE_MAP = {};
-var t ="Boolean Number String Function Array Date RegExp Object".split(" ");
-Ember.ArrayUtils.forEach(t, function(name) {
-	TYPE_MAP[ "[object " + name + "]" ] = name.toLowerCase();
+var t = "Boolean Number String Function Array Date RegExp Object".split(" ");
+Ember.ArrayPolyfills.forEach.call(t, function(name) {
+  TYPE_MAP[ "[object " + name + "]" ] = name.toLowerCase();
 });
 
 var toString = Object.prototype.toString;
@@ -115,7 +115,7 @@ Ember.none = function(obj) {
   @returns {Boolean}
 */
 Ember.empty = function(obj) {
-  return obj === null || obj === undefined || (obj.length === 0 && typeof obj !== 'function');
+  return obj === null || obj === undefined || (obj.length === 0 && typeof obj !== 'function') || (typeof obj === 'object' && Ember.get(obj, 'length') === 0);
 };
 
 /**
@@ -212,6 +212,13 @@ Ember.compare = function compare(v, w) {
       if (Ember.Comparable && Ember.Comparable.detect(v)) {
         return v.compare(v, w);
       }
+      return 0;
+
+    case 'date':
+      var vNum = v.getTime();
+      var wNum = w.getTime();
+      if (vNum < wNum) { return -1; }
+      if (vNum > wNum) { return 1; }
       return 0;
 
     default:
@@ -329,7 +336,8 @@ Ember.ORDER_DEFINITION = Ember.ENV.ORDER_DEFINITION || [
   'object',
   'instance',
   'function',
-  'class'
+  'class',
+  'date'
 ];
 
 /**
@@ -357,6 +365,8 @@ if (!Ember.keys) {
 // ERROR
 //
 
+var errorProps = ['description', 'fileName', 'lineNumber', 'message', 'name', 'number', 'stack'];
+
 /**
   @class
 
@@ -365,10 +375,10 @@ if (!Ember.keys) {
 Ember.Error = function() {
   var tmp = Error.prototype.constructor.apply(this, arguments);
 
-  for (var p in tmp) {
-    if (tmp.hasOwnProperty(p)) { this[p] = tmp[p]; }
+  // Unfortunately errors are not enumerable in Chrome (at least), so `for prop in tmp` doesn't work.
+  for (var idx = 0; idx < errorProps.length; idx++) {
+    this[errorProps[idx]] = tmp[errorProps[idx]];
   }
-  this.message = tmp.message;
 };
 
 Ember.Error.prototype = Ember.create(Error.prototype);

@@ -1,11 +1,11 @@
 // ==========================================================================
-// Project:   Ember Handlebar Views
+// Project:   Ember Handlebars Views
 // Copyright: ©2011 Strobe Inc. and contributors.
 // License:   Licensed under MIT license (see license.js)
 // ==========================================================================
 /*globals TemplateTests:true App:true */
 
-var set = Ember.set, get = Ember.get, setPath = Ember.setPath;
+var set = Ember.set, get = Ember.get;
 var firstGrandchild = function(view) {
   return get(get(view, 'childViews').objectAt(0), 'childViews').objectAt(0);
 };
@@ -172,7 +172,12 @@ test("a block passed to a collection helper defaults to the content property of 
     view.appendTo('#qunit-fixture');
   });
 
-  equal(view.$('li:has(label:contains("foo")) + li:has(label:contains("bar")) + li:has(label:contains("baz"))').length, 1, 'one label element is created for each content item');
+  equal(view.$('li:nth-child(1) label').length, 1);
+  equal(view.$('li:nth-child(1) label').text(), 'foo');
+  equal(view.$('li:nth-child(2) label').length, 1);
+  equal(view.$('li:nth-child(2) label').text(), 'bar');
+  equal(view.$('li:nth-child(3) label').length, 1);
+  equal(view.$('li:nth-child(3) label').text(), 'baz');
 });
 
 test("a block passed to a collection helper defaults to the view", function() {
@@ -188,7 +193,14 @@ test("a block passed to a collection helper defaults to the view", function() {
   Ember.run(function() {
     view.appendTo('#qunit-fixture');
   });
-  equal(view.$('li:has(label:contains("foo")) + li:has(label:contains("bar")) + li:has(label:contains("baz"))').length, 1, 'precond - one aside element is created for each content item');
+
+  // Preconds
+  equal(view.$('li:nth-child(1) label').length, 1);
+  equal(view.$('li:nth-child(1) label').text(), 'foo');
+  equal(view.$('li:nth-child(2) label').length, 1);
+  equal(view.$('li:nth-child(2) label').text(), 'bar');
+  equal(view.$('li:nth-child(3) label').length, 1);
+  equal(view.$('li:nth-child(3) label').text(), 'baz');
 
   Ember.run(function() {
     set(firstChild(view), 'content', Ember.A());
@@ -236,26 +248,18 @@ test("should give its item views the classBinding specified by itemClassBinding"
   });
 
   var view = Ember.View.create({
-    template: Ember.Handlebars.compile('{{#collection "TemplateTests.itemClassBindingTestCollectionView" itemClassBinding="content.isBaz"}}foo{{/collection}}')
+    isBar: true,
+    template: Ember.Handlebars.compile('{{#collection "TemplateTests.itemClassBindingTestCollectionView" itemClassBinding="isBar"}}foo{{/collection}}')
   });
 
   Ember.run(function() {
     view.appendTo('#qunit-fixture');
   });
 
-  equal(view.$('ul li.is-baz').length, 2, "adds class on initial rendering");
+  equal(view.$('ul li.is-bar').length, 3, "adds class on initial rendering");
 
-  Ember.run(function() {
-    setPath(firstChild(view), 'content.0.isBaz', true);
-  });
-
-  equal(view.$('ul li.is-baz').length, 3, "adds class when property changes");
-
-  Ember.run(function() {
-    setPath(firstChild(view), 'content.0.isBaz', false);
-  });
-
-  equal(view.$('ul li.is-baz').length, 2, "removes class when property changes");
+  // NOTE: in order to bind an item's class to a property of the item itself (e.g. `isBaz` above), it will be necessary
+  // to introduce a new keyword that could be used from within `itemClassBinding`. For instance, `itemClassBinding="item.isBaz"`.
 });
 
 test("should give its item views the property specified by itemPropertyBinding", function() {
@@ -263,7 +267,7 @@ test("should give its item views the property specified by itemPropertyBinding",
     tagName: 'li'
   });
 
-  // Use preserveContext=false so the itemView handlebar context is the view context
+  // Use preserveContext=false so the itemView handlebars context is the view context
   // Set itemView bindings using item*
   var view = Ember.View.create({
     baz: "baz",
@@ -282,7 +286,7 @@ test("should give its item views the property specified by itemPropertyBinding",
   });
 
   Ember.run(function() {
-    setPath(view, 'baz', "yobaz");
+    set(view, 'baz', "yobaz");
   });
 
   equal(view.$('ul li:first').text(), "yobaz", "change property of sub view");

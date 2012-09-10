@@ -1,6 +1,168 @@
-var get = Ember.get, set = Ember.set, getPath = Ember.getPath, fmt = Ember.String.fmt;
+var get = Ember.get, set = Ember.set, fmt = Ember.String.fmt;
+var arrayForEach = Ember.ArrayPolyfills.forEach;
 
 require('ember-states/state');
+
+/**
+  @private
+
+  A Transition takes the enter, exit and resolve states and normalizes
+  them:
+
+  * takes any passed in contexts into consideration
+  * adds in `initialState`s
+*/
+var Transition = function(raw) {
+  this.enterStates = raw.enterStates.slice();
+  this.exitStates = raw.exitStates.slice();
+  this.resolveState = raw.resolveState;
+
+  this.finalState = raw.enterStates[raw.enterStates.length - 1] || raw.resolveState;
+};
+
+Transition.prototype = {
+  /**
+    @private
+
+    Normalize the passed in enter, exit and resolve states.
+
+    This process also adds `finalState` and `contexts` to the Transition object.
+
+    @param {Ember.StateManager} manager the state manager running the transition
+    @param {Array} contexts a list of contexts passed into `transitionTo`
+  */
+  normalize: function(manager, contexts) {
+    this.matchContextsToStates(contexts);
+    this.addInitialStates();
+    this.removeUnchangedContexts(manager);
+    return this;
+  },
+
+  /**
+    @private
+
+    Match each of the contexts passed to `transitionTo` to a state.
+    This process may also require adding additional enter and exit
+    states if there are more contexts than enter states.
+
+    @param {Array} contexts a list of contexts passed into `transitionTo`
+  */
+  matchContextsToStates: function(contexts) {
+    var stateIdx = this.enterStates.length - 1,
+        matchedContexts = [],
+        state,
+        context;
+
+    // Next, we will match the passed in contexts to the states they
+    // represent.
+    //
+    // First, assign a context to each enter state in reverse order. If
+    // any contexts are left, add a parent state to the list of states
+    // to enter and exit, and assign a context to the parent state.
+    //
+    // If there are still contexts left when the state manager is
+    // reached, raise an exception.
+    //
+    // This allows the following:
+    //
+    // |- root
+    // | |- post
+    // | | |- comments
+    // | |- about (* current state)
+    //
+    // For `transitionTo('post.comments', post, post.get('comments')`,
+    // the first context (`post`) will be assigned to `root.post`, and
+    // the second context (`post.get('comments')`) will be assigned
+    // to `root.post.comments`.
+    //
+    // For the following:
+    //
+    // |- root
+    // | |- post
+    // | | |- index (* current state)
+    // | | |- comments
+    //
+    // For `transitionTo('post.comments', otherPost, otherPost.get('comments')`,
+    // the `<root.post>` state will be added to the list of enter and exit
+    // states because its context has changed.
+
+    while (contexts.length > 0) {
+      if (stateIdx >= 0) {
+        state = this.enterStates[stateIdx--];
+      } else {
+        if (this.enterStates.length) {
+          state = get(this.enterStates[0], 'parentState');
+          if (!state) { throw "Cannot match all contexts to states"; }
+        } else {
+          // If re-entering the current state with a context, the resolve
+          // state will be the current state.
+          state = this.resolveState;
+        }
+
+        this.enterStates.unshift(state);
+        this.exitStates.unshift(state);
+      }
+
+      // in routers, only states with dynamic segments have a context
+      if (get(state, 'hasContext')) {
+        context = contexts.pop();
+      } else {
+        context = null;
+      }
+
+      matchedContexts.unshift(context);
+    }
+
+    this.contexts = matchedContexts;
+  },
+
+  /**
+    @private
+
+    Add any `initialState`s to the list of enter states.
+  */
+  addInitialStates: function() {
+    var finalState = this.finalState, initialState;
+
+    while(true) {
+      initialState = get(finalState, 'initialState') || 'start';
+      finalState = get(finalState, 'states.' + initialState);
+
+      if (!finalState) { break; }
+
+      this.finalState = finalState;
+      this.enterStates.push(finalState);
+      this.contexts.push(undefined);
+    }
+  },
+
+  /**
+    @private
+
+    Remove any states that were added because the number of contexts
+    exceeded the number of explicit enter states, but the context has
+    not changed since the last time the state was entered.
+
+    @param {Ember.StateManager} manager passed in to look up the last
+      context for a states
+  */
+  removeUnchangedContexts: function(manager) {
+    // Start from the beginning of the enter states. If the state was added
+    // to the list during the context matching phase, make sure the context
+    // has actually changed since the last time the state was entered.
+    while (this.enterStates.length > 0) {
+      if (this.enterStates[0] !== this.exitStates[0]) { break; }
+
+      if (this.enterStates.length === this.contexts.length) {
+        if (manager.getStateMeta(this.enterStates[0], 'context') !== this.contexts[0]) { break; }
+        this.contexts.shift();
+      }
+
+      this.resolveState = this.enterStates.shift();
+      this.exitStates.shift();
+    }
+  }
+};
 
 /**
   @class
@@ -50,14 +212,14 @@ require('ember-states/state');
         start: Ember.State.create({})
       })
 
-      managerA.getPath('currentState.name') // 'start'
+      managerA.get('currentState.name') // 'start'
 
       managerB = Ember.StateManager.create({
         initialState: 'beginHere',
         beginHere: Ember.State.create({})
       })
 
-      managerB.getPath('currentState.name') // 'beginHere'
+      managerB.get('currentState.name') // 'beginHere'
 
   Because it is a property you may also provide a computed function if you wish to derive
   an `initialState` programmatically:
@@ -86,9 +248,9 @@ require('ember-states/state');
         poweredUp: Ember.State.create({})
       })
 
-      robotManager.getPath('currentState.name') // 'poweredDown'
+      robotManager.get('currentState.name') // 'poweredDown'
       robotManager.transitionTo('poweredUp')
-      robotManager.getPath('currentState.name') // 'poweredUp'
+      robotManager.get('currentState.name') // 'poweredUp'
 
   Before transitioning into a new state the existing `currentState` will have its
   `exit` method called with the StateManager instance as its first argument and
@@ -101,18 +263,18 @@ require('ember-states/state');
       robotManager = Ember.StateManager.create({
         initialState: 'poweredDown',
         poweredDown: Ember.State.create({
-          exit: function(stateManager, transition){
+          exit: function(stateManager){
             console.log("exiting the poweredDown state")
           }
         }),
         poweredUp: Ember.State.create({
-          enter: function(stateManager, transition){
+          enter: function(stateManager){
             console.log("entering the poweredUp state. Destroy all humans.")
           }
         })
       })
 
-      robotManager.getPath('currentState.name') // 'poweredDown'
+      robotManager.get('currentState.name') // 'poweredDown'
       robotManager.transitionTo('poweredUp')
       // will log
       // 'exiting the poweredDown state'
@@ -126,18 +288,18 @@ require('ember-states/state');
       robotManager = Ember.StateManager.create({
         initialState: 'poweredDown',
         poweredDown: Ember.State.create({
-          exit: function(stateManager, transition){
+          exit: function(stateManager){
             console.log("exiting the poweredDown state")
           }
         }),
         poweredUp: Ember.State.create({
-          enter: function(stateManager, transition){
+          enter: function(stateManager){
             console.log("entering the poweredUp state. Destroy all humans.")
           }
         })
       })
 
-      robotManager.getPath('currentState.name') // 'poweredDown'
+      robotManager.get('currentState.name') // 'poweredDown'
       robotManager.transitionTo('poweredUp')
       // will log
       // 'exiting the poweredDown state'
@@ -145,7 +307,7 @@ require('ember-states/state');
       robotManager.transitionTo('poweredUp') // no logging, no state change
 
       robotManager.transitionTo('someUnknownState') // silently fails
-      robotManager.getPath('currentState.name') // 'poweredUp'
+      robotManager.get('currentState.name') // 'poweredUp'
 
 
   Each state property may itself contain properties that are instances of Ember.State.
@@ -165,19 +327,19 @@ require('ember-states/state');
         })
       })
 
-      robotManager.getPath('currentState.name') // 'poweredDown'
+      robotManager.get('currentState.name') // 'poweredDown'
 
       robotManager.transitionTo('poweredUp')
-      robotManager.getPath('currentState.name') // 'poweredUp'
+      robotManager.get('currentState.name') // 'poweredUp'
 
       robotManager.transitionTo('mobile')
-      robotManager.getPath('currentState.name') // 'mobile'
+      robotManager.get('currentState.name') // 'mobile'
 
       // transition via a state path
       robotManager.transitionTo('poweredDown.charging')
-      robotManager.getPath('currentState.name') // 'charging'
+      robotManager.get('currentState.name') // 'charging'
 
-      robotManager.getPath('currentState.get.path') // 'poweredDown.charging'
+      robotManager.get('currentState.path') // 'poweredDown.charging'
 
   Enter transition methods will be called for each state and nested child state in their
   hierarchical order.  Exit methods will be called for each state and its nested states in
@@ -225,11 +387,11 @@ require('ember-states/state');
       })
 
 
-      robotManager.get('currentState.get.path') // 'poweredDown'
+      robotManager.get('currentState.path') // 'poweredDown'
       robotManager.transitionTo('charged')
       // logs 'entered charged state'
       // but does *not* log  'exited poweredDown state'
-      robotManager.getPath('currentState.name') // 'charged
+      robotManager.get('currentState.name') // 'charged
 
       robotManager.transitionTo('poweredUp.mobile')
       // logs
@@ -267,7 +429,7 @@ require('ember-states/state');
         })
       })
 
-      managerA.getPath('currentState.name') // 'subsubstateOne'
+      managerA.get('currentState.name') // 'subsubstateOne'
       managerA.send('anAction')
       // 'stateOne.substateOne.subsubstateOne' has no anAction method
       // so the 'anAction' method of 'stateOne.substateOne' is called
@@ -302,7 +464,7 @@ require('ember-states/state');
         })
       })
 
-      managerB.getPath('currentState.name') // 'subsubstateOne'
+      managerB.get('currentState.name') // 'subsubstateOne'
       managerB.send('anAction')
       // Error: <Ember.StateManager:ember132> could not
       // respond to event anAction in state stateOne.substateOne.subsubstateOne.
@@ -332,42 +494,42 @@ require('ember-states/state');
         })
       })
 
-      robotManager.getPath('currentState.name') // 'charging'
+      robotManager.get('currentState.name') // 'charging'
       robotManager.send('boot') // throws error, no boot action
                                 // in current hierarchy
-      robotManager.getPath('currentState.name') // remains 'charging'
+      robotManager.get('currentState.name') // remains 'charging'
 
       robotManager.send('beginExtermination') // throws error, no beginExtermination
                                               // action in current hierarchy
-      robotManager.getPath('currentState.name') // remains 'charging'
+      robotManager.get('currentState.name') // remains 'charging'
 
       robotManager.send('chargeComplete')
-      robotManager.getPath('currentState.name') // 'charged'
+      robotManager.get('currentState.name') // 'charged'
 
       robotManager.send('boot')
-      robotManager.getPath('currentState.name') // 'poweredUp'
+      robotManager.get('currentState.name') // 'poweredUp'
 
       robotManager.send('beginExtermination', allHumans)
-      robotManager.getPath('currentState.name') // 'rampaging'
+      robotManager.get('currentState.name') // 'rampaging'
 
-  ## Async transitions
-  When a state's `enter` and `exit` methods are called they passed a argument representing
-  the transition. By calling `async()` and `resume()` on the transition object, the
-  transition can be delayed. This can be useful to account for an animation between states.
+  Transition actions can also be created using the `transitionTo` method of the Ember.State class. The
+  following example StateManagers are equivalent:
 
-      robotManager = Ember.StateManager.create({
-        poweredUp: Ember.State.create({
-          exit: function(stateManager, transition){
-            console.log("beginning exit of the poweredUp state");
-            transition.async();
-            asyncStartShutdownDanceMoves().done(function(){
-              console.log("completing exit of the poweredUp state");
-              transition.resume();
-            });
+      aManager = Ember.StateManager.create({
+        stateOne: Ember.State.create({
+          changeToStateTwo: Ember.State.transitionTo('stateTwo')
+        }),
+        stateTwo: Ember.State.create({})
+      })
+
+      bManager = Ember.StateManager.create({
+        stateOne: Ember.State.create({
+          changeToStateTwo: function(manager, context){
+            manager.transitionTo('stateTwo', context)
           }
-        });
-      });
-
+        }),
+        stateTwo: Ember.State.create({})
+      })
 **/
 Ember.StateManager = Ember.State.extend(
 /** @scope Ember.StateManager.prototype */ {
@@ -384,7 +546,7 @@ Ember.StateManager = Ember.State.extend(
 
     var initialState = get(this, 'initialState');
 
-    if (!initialState && getPath(this, 'states.start')) {
+    if (!initialState && get(this, 'states.start')) {
       initialState = 'start';
     }
 
@@ -418,10 +580,21 @@ Ember.StateManager = Ember.State.extend(
     The current state from among the manager's possible states. This property should
     not be set directly.  Use `transitionTo` to move between states by name.
 
-    @property {Ember.State}
+    @type Ember.State
     @readOnly
   */
   currentState: null,
+
+  /**
+   The path of the current state. Returns a string representation of the current
+   state.
+
+   @type String
+   @readOnly
+  */
+  currentPath: Ember.computed('currentState', function() {
+    return get(this, 'currentState.path');
+  }).cacheable(),
 
   /**
     The name of transitionEvent that this stateManager will dispatch
@@ -443,8 +616,7 @@ Ember.StateManager = Ember.State.extend(
 
   send: function(event, context) {
     Ember.assert('Cannot send event "' + event + '" while currentState is ' + get(this, 'currentState'), get(this, 'currentState'));
-    if (arguments.length === 1) { context = {}; }
-    this.sendRecursively(event, get(this, 'currentState'), context);
+    return this.sendRecursively(event, get(this, 'currentState'), context);
   },
 
   sendRecursively: function(event, currentState, context) {
@@ -459,13 +631,13 @@ Ember.StateManager = Ember.State.extend(
     // case.
     if (typeof action === 'function') {
       if (log) { Ember.Logger.log(fmt("STATEMANAGER: Sending event '%@' to state %@.", [event, get(currentState, 'path')])); }
-      action.call(currentState, this, context);
+      return action.call(currentState, this, context);
     } else {
       var parentState = get(currentState, 'parentState');
       if (parentState) {
-        this.sendRecursively(event, parentState, context);
+        return this.sendRecursively(event, parentState, context);
       } else if (get(this, 'errorOnUnhandledEvent')) {
-        throw new Ember.Error(this.toString() + " could not respond to event " + event + " in state " + getPath(this, 'currentState.path') + ".");
+        throw new Ember.Error(this.toString() + " could not respond to event " + event + " in state " + get(this, 'currentState.path') + ".");
       }
     }
   },
@@ -512,18 +684,29 @@ Ember.StateManager = Ember.State.extend(
     return possible;
   },
 
-  findStatesByRoute: function(state, route) {
-    if (!route || route === "") { return undefined; }
-    var r = route.split('.'),
+  /**
+    @private
+
+    A state stores its child states in its `states` hash.
+    This code takes a path like `posts.show` and looks
+    up `origin.states.posts.states.show`.
+
+    It returns a list of all of the states from the
+    origin, which is the list of states to call `enter`
+    on.
+  */
+  findStatesByPath: function(origin, path) {
+    if (!path || path === "") { return undefined; }
+    var r = path.split('.'),
         ret = [];
 
-    for (var i=0, len = r.length; i < len; i += 1) {
-      var states = get(state, 'states');
+    for (var i=0, len = r.length; i < len; i++) {
+      var states = get(origin, 'states');
 
       if (!states) { return undefined; }
 
       var s = get(states, r[i]);
-      if (s) { state = s; ret.push(s); }
+      if (s) { origin = s; ret.push(s); }
       else { return undefined; }
     }
 
@@ -536,98 +719,131 @@ Ember.StateManager = Ember.State.extend(
     return this.transitionTo.apply(this, arguments);
   },
 
-  pathForSegments: function(array) {
-    return Ember.ArrayUtils.map(array, function(tuple) {
-      Ember.assert("A segment passed to transitionTo must be an Array", Ember.typeOf(tuple) === "array");
-      return tuple[0];
-    }).join(".");
+  transitionTo: function(path, context) {
+    // XXX When is transitionTo called with no path
+    if (Ember.empty(path)) { return; }
+
+    // The ES6 signature of this function is `path, ...contexts`
+    var contexts = context ? Array.prototype.slice.call(arguments, 1) : [],
+        currentState = get(this, 'currentState') || this;
+
+    // First, get the enter, exit and resolve states for the current state
+    // and specified path. If possible, use an existing cache.
+    var hash = this.contextFreeTransition(currentState, path);
+
+    // Next, process the raw state information for the contexts passed in.
+    var transition = new Transition(hash).normalize(this, contexts);
+
+    this.enterState(transition);
+    this.triggerSetupContext(transition);
   },
 
-  transitionTo: function(name, context) {
-    // 1. Normalize arguments
-    // 2. Ensure that we are in the correct state
-    // 3. Map provided path to context objects and send
-    //    appropriate transitionEvent events
+  contextFreeTransition: function(currentState, path) {
+    var cache = currentState.pathsCache[path];
+    if (cache) { return cache; }
 
-    if (Ember.empty(name)) { return; }
-
-    var segments;
-
-    if (Ember.typeOf(name) === "array") {
-      segments = Array.prototype.slice.call(arguments);
-    } else {
-      segments = [[name, context]];
-    }
-
-    var path = this.pathForSegments(segments),
-        currentState = get(this, 'currentState') || this,
-        state = currentState,
-        newState,
+    var enterStates = this.findStatesByPath(currentState, path),
         exitStates = [],
-        enterStates,
-        resolveState;
+        resolveState = currentState;
 
-    if (state.routes[path]) {
-      // cache hit
+    // Walk up the states. For each state, check whether a state matching
+    // the `path` is nested underneath. This will find the closest
+    // parent state containing `path`.
+    //
+    // This allows the user to pass in a relative path. For example, for
+    // the following state hierarchy:
+    //
+    //    | |root
+    //    | |- posts
+    //    | | |- show (* current)
+    //    | |- comments
+    //    | | |- show
+    //
+    // If the current state is `<root.posts.show>`, an attempt to
+    // transition to `comments.show` will match `<root.comments.show>`.
+    //
+    // First, this code will look for root.posts.show.comments.show.
+    // Next, it will look for root.posts.comments.show. Finally,
+    // it will look for `root.comments.show`, and find the state.
+    //
+    // After this process, the following variables will exist:
+    //
+    // * resolveState: a common parent state between the current
+    //   and target state. In the above example, `<root>` is the
+    //   `resolveState`.
+    // * enterStates: a list of all of the states represented
+    //   by the path from the `resolveState`. For example, for
+    //   the path `root.comments.show`, `enterStates` would have
+    //   `[<root.comments>, <root.comments.show>]`
+    // * exitStates: a list of all of the states from the
+    //   `resolveState` to the `currentState`. In the above
+    //   example, `exitStates` would have
+    //   `[<root.posts>`, `<root.posts.show>]`.
+    while (resolveState && !enterStates) {
+      exitStates.unshift(resolveState);
 
-      var route = state.routes[path];
-      exitStates = route.exitStates;
-      enterStates = route.enterStates;
-      state = route.futureState;
-      resolveState = route.resolveState;
-    } else {
-      // cache miss
-
-      newState = this.findStatesByRoute(currentState, path);
-
-      while (state && !newState) {
-        exitStates.unshift(state);
-
-        state = get(state, 'parentState');
-        if (!state) {
-          newState = this.findStatesByRoute(this, path);
-          if (!newState) { return; }
+      resolveState = get(resolveState, 'parentState');
+      if (!resolveState) {
+        enterStates = this.findStatesByPath(this, path);
+        if (!enterStates) {
+          Ember.assert('Could not find state for path: "'+path+'"');
+          return;
         }
-        newState = this.findStatesByRoute(state, path);
       }
-
-      resolveState = state;
-
-      enterStates = newState.slice(0);
-      exitStates = exitStates.slice(0);
-
-      if (enterStates.length > 0) {
-        state = enterStates[enterStates.length - 1];
-
-        while (enterStates.length > 0 && enterStates[0] === exitStates[0]) {
-          enterStates.shift();
-          exitStates.shift();
-        }
-      }
-
-      currentState.routes[path] = {
-        exitStates: exitStates,
-        enterStates: enterStates,
-        futureState: state,
-        resolveState: resolveState
-      };
+      enterStates = this.findStatesByPath(resolveState, path);
     }
 
-    this.enterState(exitStates, enterStates, state);
-    this.triggerSetupContext(resolveState, segments);
+    // If the path contains some states that are parents of both the
+    // current state and the target state, remove them.
+    //
+    // For example, in the following hierarchy:
+    //
+    // |- root
+    // | |- post
+    // | | |- index (* current)
+    // | | |- show
+    //
+    // If the `path` is `root.post.show`, the three variables will
+    // be:
+    //
+    // * resolveState: `<state manager>`
+    // * enterStates: `[<root>, <root.post>, <root.post.show>]`
+    // * exitStates: `[<root>, <root.post>, <root.post.index>]`
+    //
+    // The goal of this code is to remove the common states, so we
+    // have:
+    //
+    // * resolveState: `<root.post>`
+    // * enterStates: `[<root.post.show>]`
+    // * exitStates: `[<root.post.index>]`
+    //
+    // This avoid unnecessary calls to the enter and exit transitions.
+    while (enterStates.length > 0 && enterStates[0] === exitStates[0]) {
+      resolveState = enterStates.shift();
+      exitStates.shift();
+    }
+
+    // Cache the enterStates, exitStates, and resolveState for the
+    // current state and the `path`.
+    var transitions = currentState.pathsCache[path] = {
+      exitStates: exitStates,
+      enterStates: enterStates,
+      resolveState: resolveState
+    };
+
+    return transitions;
   },
 
-  triggerSetupContext: function(root, segments) {
-    var state = root;
+  triggerSetupContext: function(transitions) {
+    var contexts = transitions.contexts,
+        offset = transitions.enterStates.length - contexts.length,
+        enterStates = transitions.enterStates,
+        transitionEvent = get(this, 'transitionEvent');
 
-    Ember.ArrayUtils.forEach(segments, function(tuple) {
-      var path = tuple[0],
-          context = tuple[1];
+    Ember.assert("More contexts provided than states", offset >= 0);
 
-      state = this.findStatesByRoute(state, path);
-      state = state[state.length-1];
-
-      state.fire(get(this, 'transitionEvent'), this, context);
+    arrayForEach.call(enterStates, function(state, idx) {
+      state.trigger(transitionEvent, this, contexts[idx-offset]);
     }, this);
   },
 
@@ -642,66 +858,19 @@ Ember.StateManager = Ember.State.extend(
     }
   },
 
-  asyncEach: function(list, callback, doneCallback) {
-    var async = false,
-        self = this;
+  enterState: function(transition) {
+    var log = this.enableLogging;
 
-    if (!list.length) {
-      if (doneCallback) { doneCallback.call(this); }
-      return;
-    }
+    var exitStates = transition.exitStates.slice(0).reverse();
+    arrayForEach.call(exitStates, function(state) {
+      state.trigger('exit', this);
+    }, this);
 
-    var head = list[0],
-        tail = list.slice(1);
+    arrayForEach.call(transition.enterStates, function(state) {
+      if (log) { Ember.Logger.log("STATEMANAGER: Entering " + get(state, 'path')); }
+      state.trigger('enter', this);
+    }, this);
 
-    var transition = {
-      async: function() { async = true; },
-      resume: function() {
-        self.asyncEach(tail, callback, doneCallback);
-      }
-    };
-
-    callback.call(this, head, transition);
-
-    if (!async) { transition.resume(); }
-  },
-
-  enterState: function(exitStates, enterStates, state) {
-    var log = this.enableLogging,
-        stateManager = this;
-
-    exitStates = exitStates.slice(0).reverse();
-    this.asyncEach(exitStates, function(state, transition) {
-      state.fire('exit', stateManager, transition);
-    }, function() {
-      this.asyncEach(enterStates, function(state, transition) {
-        if (log) { Ember.Logger.log("STATEMANAGER: Entering " + get(state, 'path')); }
-        state.fire('enter', stateManager, transition);
-      }, function() {
-        var startState = state,
-            enteredState,
-            initialState = get(startState, 'initialState');
-
-        if (!initialState) {
-          initialState = 'start';
-        }
-
-        // right now, start states cannot be entered asynchronously
-        while (startState = get(get(startState, 'states'), initialState)) {
-          enteredState = startState;
-
-          if (log) { Ember.Logger.log("STATEMANAGER: Entering " + get(startState, 'path')); }
-          startState.fire('enter', stateManager);
-
-          initialState = get(startState, 'initialState');
-
-          if (!initialState) {
-            initialState = 'start';
-          }
-        }
-
-        set(this, 'currentState', enteredState || state);
-      });
-    });
+    set(this, 'currentState', transition.finalState);
   }
 });

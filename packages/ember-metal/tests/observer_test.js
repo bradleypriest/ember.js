@@ -131,6 +131,77 @@ testBoth('suspending an observer should not defer change notifications during ca
   deepEqual(otherTarget.values, ['1', '2', '3'], 'should invoke');
 });
 
+testBoth('suspending observers should not fire during callback', function(get,set) {
+  var obj = {}, target, otherTarget;
+
+  target = {
+    values: [],
+    method: function() { this.values.push(get(obj, 'foo')); }
+  };
+
+  otherTarget = {
+    values: [],
+    method: function() { this.values.push(get(obj, 'foo')); }
+  };
+
+  Ember.addObserver(obj, 'foo', target, target.method);
+  Ember.addObserver(obj, 'foo', otherTarget, otherTarget.method);
+
+  function callback() {
+      equal(this, target);
+
+      set(obj, 'foo', '2');
+
+      return 'result';
+  }
+
+  set(obj, 'foo', '1');
+
+  equal(Ember._suspendObservers(obj, ['foo'], target, target.method, callback), 'result');
+
+  set(obj, 'foo', '3');
+
+  deepEqual(target.values, ['1', '3'], 'should invoke');
+  deepEqual(otherTarget.values, ['1', '2', '3'], 'should invoke');
+});
+
+
+testBoth('suspending observers should not defer change notifications during callback', function(get,set) {
+  var obj = {}, target, otherTarget;
+
+  target = {
+    values: [],
+    method: function() { this.values.push(get(obj, 'foo')); }
+  };
+
+  otherTarget = {
+    values: [],
+    method: function() { this.values.push(get(obj, 'foo')); }
+  };
+
+  Ember.addObserver(obj, 'foo', target, target.method);
+  Ember.addObserver(obj, 'foo', otherTarget, otherTarget.method);
+
+  function callback() {
+      equal(this, target);
+
+      set(obj, 'foo', '2');
+
+      return 'result';
+  }
+
+  set(obj, 'foo', '1');
+
+  Ember.beginPropertyChanges();
+  equal(Ember._suspendObservers(obj, ['foo'], target, target.method, callback), 'result');
+  Ember.endPropertyChanges();
+
+  set(obj, 'foo', '3');
+
+  deepEqual(target.values, ['1', '3'], 'should invoke');
+  deepEqual(otherTarget.values, ['1', '2', '3'], 'should invoke');
+});
+
 testBoth('deferring property change notifications', function(get,set) {
   var obj = { foo: 'foo' };
   var fooCount = 0;
@@ -237,7 +308,8 @@ testBoth('addObserver should respect targets with methods', function(get,set){
   var target1 = {
     count: 0,
 
-    didChange: function(obj, keyName, value) {
+    didChange: function(obj, keyName) {
+      var value = get(obj, keyName);
       equal(this, target1, 'should invoke with this');
       equal(obj, observed, 'param1 should be observed object');
       equal(keyName, 'foo', 'param2 should be keyName');
@@ -249,7 +321,8 @@ testBoth('addObserver should respect targets with methods', function(get,set){
   var target2 = {
     count: 0,
 
-    didChange: function(obj, keyName, value) {
+    didChange: function(obj, keyName) {
+      var value = get(obj, keyName);
       equal(this, target2, 'should invoke with this');
       equal(obj, observed, 'param1 should be observed object');
       equal(keyName, 'foo', 'param2 should be keyName');
@@ -266,30 +339,6 @@ testBoth('addObserver should respect targets with methods', function(get,set){
   equal(target2.count, 1, 'target2 observer should have fired');
 
 });
-
-testBoth('addObserver should preserve additional context passed when firing the observer', function(get, set) {
-  var observed = { foo: 'foo' };
-
-  var target1 = {
-    count: 0,
-
-    didChange: function(obj, keyName, value, ctx1, ctx2) {
-      equal(ctx1, "biff", "first context is passed");
-      equal(ctx2, "bang", "second context is passed");
-      equal(5, arguments.length);
-      this.count++;
-    }
-  };
-
-  Ember.addObserver(observed, 'foo', target1, 'didChange', "biff", "bang");
-
-  set(observed, 'foo', 'BAZ');
-  equal(target1.count, 1, 'target1 observer should have fired');
-
-  set(observed, 'foo', 'BAZ2');
-  equal(target1.count, 2, 'target1 observer should have fired');
-});
-
 
 testBoth('addObserver should allow multiple objects to observe a property', function(get, set) { var observed = { foo: 'foo' };
 
@@ -456,7 +505,8 @@ testBoth('addBeforeObserver should respect targets with methods', function(get,s
   var target1 = {
     count: 0,
 
-    willChange: function(obj, keyName, value) {
+    willChange: function(obj, keyName) {
+      var value = get(obj, keyName);
       equal(this, target1, 'should invoke with this');
       equal(obj, observed, 'param1 should be observed object');
       equal(keyName, 'foo', 'param2 should be keyName');
@@ -468,7 +518,8 @@ testBoth('addBeforeObserver should respect targets with methods', function(get,s
   var target2 = {
     count: 0,
 
-    willChange: function(obj, keyName, value) {
+    willChange: function(obj, keyName) {
+      var value = get(obj, keyName);
       equal(this, target2, 'should invoke with this');
       equal(obj, observed, 'param1 should be observed object');
       equal(keyName, 'foo', 'param2 should be keyName');
@@ -525,16 +576,16 @@ module('Ember.addObserver - dependentkey with chained properties', {
 testBoth('depending on a simple chain', function(get, set) {
 
   var val ;
-  Ember.addObserver(obj, 'foo.bar.baz.biff', function(target, key, value) {
-    val = value;
+  Ember.addObserver(obj, 'foo.bar.baz.biff', function(target, key) {
+    val = Ember.get(target, key);
     count++;
   });
 
-  set(Ember.getPath(obj, 'foo.bar.baz'), 'biff', 'BUZZ');
+  set(Ember.get(obj, 'foo.bar.baz'), 'biff', 'BUZZ');
   equal(val, 'BUZZ');
   equal(count, 1);
 
-  set(Ember.getPath(obj, 'foo.bar'), 'baz', { biff: 'BLARG' });
+  set(Ember.get(obj, 'foo.bar'), 'baz', { biff: 'BLARG' });
   equal(val, 'BLARG');
   equal(count, 2);
 
@@ -546,7 +597,7 @@ testBoth('depending on a simple chain', function(get, set) {
   equal(val, 'BLARG');
   equal(count, 4);
 
-  set(Ember.getPath(obj, 'foo.bar.baz'), 'biff', 'BUZZ');
+  set(Ember.get(obj, 'foo.bar.baz'), 'biff', 'BUZZ');
   equal(val, 'BUZZ');
   equal(count, 5);
 
@@ -563,16 +614,16 @@ testBoth('depending on a simple chain', function(get, set) {
 testBoth('depending on a Global chain', function(get, set) {
 
   var val ;
-  Ember.addObserver(obj, 'Global.foo.bar.baz.biff', function(target, key, value){
-    val = value;
+  Ember.addObserver(obj, 'Global.foo.bar.baz.biff', function(target, key){
+    val = Ember.get(window, key);
     count++;
   });
 
-  set(Ember.getPath(Global, 'foo.bar.baz'),  'biff', 'BUZZ');
+  set(Ember.get(Global, 'foo.bar.baz'),  'biff', 'BUZZ');
   equal(val, 'BUZZ');
   equal(count, 1);
 
-  set(Ember.getPath(Global, 'foo.bar'),  'baz', { biff: 'BLARG' });
+  set(Ember.get(Global, 'foo.bar'),  'baz', { biff: 'BLARG' });
   equal(val, 'BLARG');
   equal(count, 2);
 
@@ -584,7 +635,7 @@ testBoth('depending on a Global chain', function(get, set) {
   equal(val, 'BLARG');
   equal(count, 4);
 
-  set(Ember.getPath(Global, 'foo.bar.baz'),  'biff', 'BUZZ');
+  set(Ember.get(Global, 'foo.bar.baz'),  'biff', 'BUZZ');
   equal(val, 'BUZZ');
   equal(count, 5);
 
@@ -649,3 +700,45 @@ testBoth('setting a cached computed property whose value has changed should trig
   equal(count, 3);
   equal(get(obj, 'foo'), 'bar');
 });
+
+module("Ember.immediateObserver");
+
+testBoth("immediate observers should fire synchronously", function(get, set) {
+  var obj = {},
+      observerCalled = 0,
+      mixin;
+
+  // explicitly create a run loop so we do not inadvertently
+  // trigger deferred behavior
+  Ember.run(function() {
+    mixin = Ember.Mixin.create({
+      fooDidChange: Ember.immediateObserver(function() {
+        observerCalled++;
+        equal(get(this, 'foo'), "barbaz", "newly set value is immediately available");
+      }, 'foo')
+    });
+
+    mixin.apply(obj);
+
+    Ember.defineProperty(obj, 'foo', Ember.computed(function(key, value) {
+      if (arguments.length > 1) {
+        return value;
+      }
+      return "yes hello this is foo";
+    }).cacheable());
+
+    equal(get(obj, 'foo'), "yes hello this is foo", "precond - computed property returns a value");
+    equal(observerCalled, 0, "observer has not yet been called");
+
+    set(obj, 'foo', 'barbaz');
+
+    equal(observerCalled, 1, "observer was called once");
+  });
+});
+
+testBoth("immediate observers are for internal properties only", function(get, set) {
+  raises(function() {
+    Ember.immediateObserver(Ember.K, 'foo.bar');
+  });
+});
+

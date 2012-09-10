@@ -8,8 +8,7 @@ gem "uglifier", :git => "https://github.com/lautis/uglifier.git"
 
 group :development do
   gem "rack"
-  gem "rest-client"
-  gem "github_api", "0.4.11"
+  gem "github_downloads", :git => "https://github.com/pangratz/github_downloads.git"
   gem "ember-docs", :git => "https://github.com/emberjs/docs-generator.git"
   gem "kicker"
 end

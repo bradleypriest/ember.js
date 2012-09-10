@@ -27,9 +27,16 @@ if (!Ember.create) {
   /** @private */
   var K = function() {};
 
-  Ember.create = function(obj) {
+  Ember.create = function(obj, props) {
     K.prototype = obj;
     obj = new K();
+    if (props) {
+      K.prototype = obj;
+      for (var prop in props) {
+        K.prototype[prop] = props[prop].value;
+      }
+      obj = new K();
+    }
     K.prototype = null;
 
     return obj;
@@ -141,4 +148,8 @@ if (!platform.defineProperty) {
   };
 
   platform.defineProperty.isSimulated = true;
+}
+
+if (Ember.ENV.MANDATORY_SETTER && !platform.hasPropertyAccessors) {
+  Ember.ENV.MANDATORY_SETTER = false;
 }

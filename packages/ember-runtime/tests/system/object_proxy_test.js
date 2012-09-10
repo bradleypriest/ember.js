@@ -1,28 +1,33 @@
 module("Ember.ObjectProxy");
 
 testBoth("should proxy properties to content", function(get, set) {
-  var content = {firstName: 'Tom', lastName: 'Dale'},
+  var content = {
+        firstName: 'Tom',
+        lastName: 'Dale',
+        unknownProperty: function (key) { return key + ' unknown';}
+      },
       proxy = Ember.ObjectProxy.create();
 
-  equal(get(proxy, 'firstName'), undefined);
-  set(proxy, 'firstName', 'Foo');
-  equal(get(proxy, 'firstName'), undefined);
+  equal(get(proxy, 'firstName'), undefined, 'get on proxy without content should return undefined');
+  raises(function () {
+    set(proxy, 'firstName', 'Foo');
+  }, 'set on proxy without content should raise');
 
   set(proxy, 'content', content);
 
-  equal(get(proxy, 'firstName'), 'Tom');
-  equal(get(proxy, 'lastName'), 'Dale');
-  equal(get(proxy, 'foo'), undefined);
+  equal(get(proxy, 'firstName'), 'Tom', 'get on proxy with content should forward to content');
+  equal(get(proxy, 'lastName'), 'Dale', 'get on proxy with content should forward to content');
+  equal(get(proxy, 'foo'), 'foo unknown', 'get on proxy with content should forward to content');
 
   set(proxy, 'lastName', 'Huda');
 
-  equal(get(content, 'lastName'), 'Huda');
-  equal(get(proxy, 'lastName'), 'Huda');
+  equal(get(content, 'lastName'), 'Huda', 'content should have new value from set on proxy');
+  equal(get(proxy, 'lastName'), 'Huda', 'proxy should have new value from set on proxy');
 
   set(proxy, 'content', {firstName: 'Yehuda', lastName: 'Katz'});
 
-  equal(get(proxy, 'firstName'), 'Yehuda');
-  equal(get(proxy, 'lastName'), 'Katz');
+  equal(get(proxy, 'firstName'), 'Yehuda', 'proxy should reflect updated content');
+  equal(get(proxy, 'lastName'), 'Katz', 'proxy should reflect updated content');
 });
 
 testBoth("should work with watched properties", function(get, set) {
@@ -87,23 +92,23 @@ testBoth("should work with watched properties", function(get, set) {
   equal(get(content2, 'lastName'), 'Katzdale');
 });
 
-test("setPath and getPath should work", function () {
+test("set and get should work with paths", function () {
   var content = {foo: {bar: 'baz'}},
       proxy = Ember.ObjectProxy.create({content: content}),
       count = 0;
-  proxy.setPath('foo.bar', 'hello');
-  equal(proxy.getPath('foo.bar'), 'hello');
-  equal(proxy.getPath('content.foo.bar'), 'hello');
+  proxy.set('foo.bar', 'hello');
+  equal(proxy.get('foo.bar'), 'hello');
+  equal(proxy.get('content.foo.bar'), 'hello');
 
   proxy.addObserver('foo.bar', function () {
     count++;
   });
 
-  proxy.setPath('foo.bar', 'bye');
+  proxy.set('foo.bar', 'bye');
 
   equal(count, 1);
-  equal(proxy.getPath('foo.bar'), 'bye');
-  equal(proxy.getPath('content.foo.bar'), 'bye');
+  equal(proxy.get('foo.bar'), 'bye');
+  equal(proxy.get('content.foo.bar'), 'bye');
 });
 
 testBoth("should transition between watched and unwatched strategies", function(get, set) {

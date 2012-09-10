@@ -1,5 +1,5 @@
 // ==========================================================================
-// Project:   Ember Handlebar Views
+// Project:   Ember Handlebars Views
 // Copyright: ©2011 Strobe Inc. and contributors.
 // License:   Licensed under MIT license (see license.js)
 // ==========================================================================
@@ -18,10 +18,6 @@ require("ember-handlebars/ext");
 Ember.Handlebars.bootstrap = function(ctx) {
   var selectors = 'script[type="text/x-handlebars"], script[type="text/x-raw-handlebars"]';
 
-  if (Ember.ENV.LEGACY_HANDLEBARS_TAGS) { selectors += ', script[type="text/html"]'; }
-
-  Ember.warn("Ember no longer parses text/html script tags by default. Set ENV.LEGACY_HANDLEBARS_TAGS = true to restore this functionality.", Ember.ENV.LEGACY_HANDLEBARS_TAGS || Ember.$('script[type="text/html"]').length === 0);
-
   Ember.$(selectors, ctx)
     .each(function() {
     // Get a reference to the script tag
@@ -36,7 +32,7 @@ Ember.Handlebars.bootstrap = function(ctx) {
       // id if no name is found.
       templateName = script.attr('data-template-name') || script.attr('id'),
       template = compile(script.html()),
-      view, viewPath, elementId, tagName, options;
+      view, viewPath, elementId, options;
 
     if (templateName) {
       // For templates which have a name, we save them and then remove them from the DOM
@@ -59,19 +55,14 @@ Ember.Handlebars.bootstrap = function(ctx) {
       // Users can optionally specify a custom view subclass to use by setting the
       // data-view attribute of the script tag.
       viewPath = script.attr('data-view');
-      view = viewPath ? Ember.getPath(viewPath) : Ember.View;
+      view = viewPath ? Ember.get(viewPath) : Ember.View;
 
       // Get the id of the script, used by Ember.View's elementId property,
       // Look for data-element-id attribute.
       elementId = script.attr('data-element-id');
 
-      // Users can optionally specify a custom tag name to use by setting the
-      // data-tag-name attribute on the script tag.
-      tagName = script.attr('data-tag-name');
-
       options = { template: template };
       if (elementId) { options.elementId = elementId; }
-      if (tagName)   { options.tagName   = tagName; }
 
       view = view.create(options);
 
@@ -85,8 +76,21 @@ Ember.Handlebars.bootstrap = function(ctx) {
   });
 };
 
-Ember.$(document).ready(
-  function(){
-    Ember.Handlebars.bootstrap( Ember.$(document) );
-  }
-);
+/** @private */
+function bootstrap() {
+  Ember.Handlebars.bootstrap( Ember.$(document) );
+}
+
+/*
+  We tie this to application.load to ensure that we've at least
+  attempted to bootstrap at the point that the application is loaded.
+
+  We also tie this to document ready since we're guaranteed that all
+  the inline templates are present at this point.
+
+  There's no harm to running this twice, since we remove the templates
+  from the DOM after processing.
+*/
+
+Ember.$(document).ready(bootstrap);
+Ember.onLoad('application', bootstrap);

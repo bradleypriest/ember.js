@@ -7,18 +7,21 @@
 
 var view;
 var application;
-var set = Ember.set, get = Ember.get, getPath = Ember.getPath;
+var set = Ember.set, get = Ember.get;
 
 module("Ember.Application", {
   setup: function() {
     Ember.$("#qunit-fixture").html("<div id='one'><div id='one-child'>HI</div></div><div id='two'>HI</div>");
     Ember.run(function() {
       application = Ember.Application.create({ rootElement: '#one' });
+      application.initialize();
     });
   },
 
   teardown: function() {
-    Ember.run(function(){ application.destroy(); });
+    if (application) {
+      Ember.run(function(){ application.destroy(); });
+    }
   }
 });
 
@@ -36,7 +39,7 @@ test("you can make a new application in a non-overlapping element", function() {
 test("you cannot make a new application that is a parent of an existing application", function() {
   raises(function() {
     Ember.run(function() {
-      Ember.Application.create({ rootElement: '#qunit-fixture' });
+      Ember.Application.create({ rootElement: '#qunit-fixture' }).initialize();
     });
   }, Error);
 });
@@ -44,7 +47,7 @@ test("you cannot make a new application that is a parent of an existing applicat
 test("you cannot make a new application that is a descendent of an existing application", function() {
   raises(function() {
     Ember.run(function() {
-      Ember.Application.create({ rootElement: '#one-child' });
+      Ember.Application.create({ rootElement: '#one-child' }).initialize();
     });
   }, Error);
 });
@@ -52,7 +55,7 @@ test("you cannot make a new application that is a descendent of an existing appl
 test("you cannot make a new application that is a duplicate of an existing application", function() {
   raises(function() {
     Ember.run(function() {
-      Ember.Application.create({ rootElement: '#one' });
+      Ember.Application.create({ rootElement: '#one' }).initialize();
     });
   }, Error);
 });
@@ -64,11 +67,11 @@ test("you cannot make two default applications without a rootElement error", fun
   });
 
   Ember.run(function() {
-    application = Ember.Application.create();
+    application = Ember.Application.create().initialize();
   });
   raises(function() {
     Ember.run(function() {
-      Ember.Application.create();
+      Ember.Application.create().initialize();
     });
   }, Error);
 });
@@ -106,14 +109,16 @@ test("initialize controllers into a state manager", function() {
 
   var stateManager = Ember.Object.create();
 
-  app.initialize(stateManager);
+  Ember.run(function() { app.initialize(stateManager); });
 
   ok(get(stateManager, 'fooController') instanceof app.FooController, "fooController was assigned");
   ok(get(stateManager, 'barController') instanceof app.BarController, "barController was assigned");
   ok(get(stateManager, 'foo') === undefined, "foo was not assigned");
 
-  equal(getPath(stateManager, 'fooController.target'), stateManager, "the state manager is assigned");
-  equal(getPath(stateManager, 'barController.target'), stateManager, "the state manager is assigned");
+  equal(get(stateManager, 'fooController.target'), stateManager, "the state manager is assigned");
+  equal(get(stateManager, 'barController.target'), stateManager, "the state manager is assigned");
+  equal(get(stateManager, 'fooController.namespace'), app, "the namespace is assigned");
+  equal(get(stateManager, 'fooController.namespace'), app, "the namespace is assigned");
 });
 
 test('initialized application go to initial route', function() {
@@ -131,30 +136,24 @@ test('initialized application go to initial route', function() {
         onUpdateURL: function() {}
       },
 
-      root: Ember.State.extend({
-        index: Ember.State.extend({
+      root: Ember.Route.extend({
+        index: Ember.Route.extend({
           route: '/'
         })
       })
     });
-  });
 
-  app.initialize(app.stateManager);
-  equal(app.getPath('stateManager.currentState.path'), 'root.index', "The router moved the state into the right place");
-});
 
-test("initialize application with non routable stateManager", function() {
-  Ember.run(function() {
-    app = Ember.Application.create({
-      rootElement: '#qunit-fixture'
+    app.ApplicationView = Ember.View.extend({
+      template: function() { return "Hello!"; }
     });
 
-    app.stateManager = Ember.StateManager.create({
-      start: Ember.State.extend()
-    });
+    app.ApplicationController = Ember.Controller.extend();
+
+    Ember.run(function() { app.initialize(app.stateManager); });
   });
 
-  equal(app.getPath('stateManager.currentState.path'), 'start', "Application sucessfuly started");
+  equal(app.get('router.currentState.path'), 'root.index', "The router moved the state into the right place");
 });
 
 test("initialize application with stateManager via initialize call", function() {
@@ -164,21 +163,27 @@ test("initialize application with stateManager via initialize call", function() 
     });
 
     app.Router = Ember.Router.extend({
-      location: 'hash',
+      location: 'none',
 
-      root: Ember.State.extend({
-        index: Ember.State.extend({
+      root: Ember.Route.extend({
+        index: Ember.Route.extend({
           route: '/'
         })
       })
     });
 
+    app.ApplicationView = Ember.View.extend({
+      template: function() { return "Hello!"; }
+    });
+
+    app.ApplicationController = Ember.Controller.extend();
+
     app.initialize(app.Router.create());
   });
 
-  equal(app.getPath('stateManager') instanceof Ember.Router, true, "Router was set from initialize call");
-  equal(app.getPath('stateManager.location') instanceof Ember.HashLocation, true, "Location was set from location implementation name");
-  equal(app.getPath('stateManager.currentState.path'), 'root.index', "The router moved the state into the right place");
+  equal(app.get('router') instanceof Ember.Router, true, "Router was set from initialize call");
+  equal(app.get('router.location') instanceof Ember.NoneLocation, true, "Location was set from location implementation name");
+  equal(app.get('router.currentState.path'), 'root.index', "The router moved the state into the right place");
 });
 
 test("initialize application with stateManager via initialize call from Router class", function() {
@@ -188,20 +193,26 @@ test("initialize application with stateManager via initialize call from Router c
     });
 
     app.Router = Ember.Router.extend({
-      location: 'hash',
+      location: 'none',
 
-      root: Ember.State.extend({
-        index: Ember.State.extend({
+      root: Ember.Route.extend({
+        index: Ember.Route.extend({
           route: '/'
         })
       })
     });
 
+    app.ApplicationView = Ember.View.extend({
+      template: function() { return "Hello!"; }
+    });
+
+    app.ApplicationController = Ember.Controller.extend();
+
     app.initialize();
   });
 
-  equal(app.getPath('stateManager') instanceof Ember.Router, true, "Router was set from initialize call");
-  equal(app.getPath('stateManager.currentState.path'), 'root.index', "The router moved the state into the right place");
+  equal(app.get('router') instanceof Ember.Router, true, "Router was set from initialize call");
+  equal(app.get('router.currentState.path'), 'root.index', "The router moved the state into the right place");
 });
 
 test("injections can be registered in a specified order", function() {
@@ -261,10 +272,10 @@ test("ApplicationView is inserted into the page", function() {
     app.ApplicationController = Ember.Controller.extend();
 
     app.Router = Ember.Router.extend({
-      location: 'hash',
+      location: 'none',
 
-      root: Ember.State.extend({
-        index: Ember.State.extend({
+      root: Ember.Route.extend({
+        index: Ember.Route.extend({
           route: '/'
         })
       })
@@ -274,6 +285,34 @@ test("ApplicationView is inserted into the page", function() {
   });
 
   equal(Ember.$("#qunit-fixture").text(), "Hello!");
+});
+
+test("ApplicationView and ApplicationController are assumed to exist in all Routers", function() {
+  Ember.run(function() {
+    app = Ember.Application.create({
+      rootElement: '#qunit-fixture'
+    });
+  });
+
+  Ember.run(function() {
+    app.OneView = Ember.View.extend({
+      template: function() { return "Hello!"; }
+    });
+    app.OneController = Ember.Controller.extend();
+
+    app.Router = Ember.Router.extend({
+      location: 'hash',
+
+      root: Ember.Route.extend({
+        index: Ember.Route.extend({
+          route: '/'
+        })
+      })
+    });
+  });
+
+  raises(function(){ Ember.run(function() { app.initialize(); }); }, Error);
+
 });
 
 test("ControllerObject class can be initialized with target, controllers and view properties", function() {
@@ -288,12 +327,12 @@ test("ControllerObject class can be initialized with target, controllers and vie
 
     stateManager = Ember.StateManager.create();
 
-    app.initialize(stateManager);
+    Ember.run(function() { app.initialize(stateManager); });
 
     stateManager.get('postController').set('view', Ember.View.create());
   });
 
-  equal(app.getPath('stateManager.postController.target') instanceof Ember.StateManager, true, "controller has target");
-  equal(app.getPath('stateManager.postController.controllers') instanceof Ember.StateManager, true, "controller has controllers");
-  equal(app.getPath('stateManager.postController.view') instanceof Ember.View, true, "controller has view");
+  equal(app.get('router.postController.target') instanceof Ember.StateManager, true, "controller has target");
+  equal(app.get('router.postController.controllers') instanceof Ember.StateManager, true, "controller has controllers");
+  equal(app.get('router.postController.view') instanceof Ember.View, true, "controller has view");
 });

@@ -1,5 +1,5 @@
 // ==========================================================================
-// Project:   Ember Handlebar Views
+// Project:   Ember Handlebars Views
 // Copyright: ©2011 Strobe Inc. and contributors.
 // License:   Licensed under MIT license (see license.js)
 // ==========================================================================
@@ -9,14 +9,14 @@
 require("ember-handlebars");
 
 var get = Ember.get, set = Ember.set;
-var indexOf = Ember.ArrayUtils.indexOf;
 var PARENT_VIEW_PATH = /^parentView\./;
 var EmberHandlebars = Ember.Handlebars;
+var VIEW_PRESERVES_CONTEXT = Ember.VIEW_PRESERVES_CONTEXT;
 
 /** @private */
 EmberHandlebars.ViewHelper = Ember.Object.create({
 
-  viewClassFromHTMLOptions: function(viewClass, options, thisContext) {
+  propertiesFromHTMLOptions: function(options, thisContext) {
     var hash = options.hash, data = options.data;
     var extensions = {},
         classes = hash['class'],
@@ -39,7 +39,8 @@ EmberHandlebars.ViewHelper = Ember.Object.create({
     }
 
     if (hash.classNameBindings) {
-      extensions.classNameBindings = hash.classNameBindings.split(' ');
+      if (extensions.classNameBindings === undefined) extensions.classNameBindings = [];
+      extensions.classNameBindings = extensions.classNameBindings.concat(hash.classNameBindings.split(' '));
       dup = true;
     }
 
@@ -56,27 +57,37 @@ EmberHandlebars.ViewHelper = Ember.Object.create({
       delete hash.classBinding;
     }
 
-    // Look for bindings passed to the helper and, if they are
-    // local, make them relative to the current context instead of the
-    // view.
-    var path, normalized;
+    // Set the proper context for all bindings passed to the helper. This applies to regular attribute bindings
+    // as well as class name bindings. If the bindings are local, make them relative to the current context
+    // instead of the view.
+    var path;
 
+    // Evaluate the context of regular attribute bindings:
     for (var prop in hash) {
       if (!hash.hasOwnProperty(prop)) { continue; }
 
       // Test if the property ends in "Binding"
-      if (Ember.IS_BINDING.test(prop)) {
-        path = hash[prop];
+      if (Ember.IS_BINDING.test(prop) && typeof hash[prop] === 'string') {
+        path = this.contextualizeBindingPath(hash[prop], data);
+        if (path) { hash[prop] = path; }
+      }
+    }
 
-        normalized = Ember.Handlebars.normalizePath(null, path, data);
-        if (normalized.isKeyword) {
-          hash[prop] = 'templateData.keywords.'+path;
-        } else if (!Ember.isGlobalPath(path)) {
-          if (path === 'this') {
-            hash[prop] = 'bindingContext';
-          } else {
-            hash[prop] = 'bindingContext.'+path;
-          }
+    // Evaluate the context of class name bindings:
+    if (extensions.classNameBindings) {
+      for (var b in extensions.classNameBindings) {
+        var full = extensions.classNameBindings[b];
+        if (typeof full === 'string') {
+          // Contextualize the path of classNameBinding so this:
+          //
+          //     classNameBinding="isGreen:green"
+          //
+          // is converted to this:
+          //
+          //     classNameBinding="bindingContext.isGreen:green"
+          var parsedPath = Ember.View._parsePropertyPath(full);
+          path = this.contextualizeBindingPath(parsedPath.path, data);
+          if (path) { extensions.classNameBindings[b] = path + parsedPath.classNames; }
         }
       }
     }
@@ -85,7 +96,24 @@ EmberHandlebars.ViewHelper = Ember.Object.create({
     // for the bindings set up above.
     extensions.bindingContext = thisContext;
 
-    return viewClass.extend(hash, extensions);
+    return Ember.$.extend(hash, extensions);
+  },
+
+  // Transform bindings from the current context to a context that can be evaluated within the view.
+  // Returns null if the path shouldn't be changed.
+  //
+  // TODO: consider the addition of a prefix that would allow this method to return `path`.
+  contextualizeBindingPath: function(path, data) {
+    var normalized = Ember.Handlebars.normalizePath(null, path, data);
+    if (normalized.isKeyword) {
+      return 'templateData.keywords.' + path;
+    } else if (Ember.isGlobalPath(path)) {
+      return null;
+    } else if (path === 'this') {
+      return 'bindingContext';
+    } else {
+      return 'bindingContext.' + path;
+    }
   },
 
   helper: function(thisContext, path, options) {
@@ -105,15 +133,19 @@ EmberHandlebars.ViewHelper = Ember.Object.create({
 
     Ember.assert(Ember.String.fmt('You must pass a view class to the #view helper, not %@ (%@)', [path, newView]), Ember.View.detect(newView));
 
-    newView = this.viewClassFromHTMLOptions(newView, options, thisContext);
+    var viewOptions = this.propertiesFromHTMLOptions(options, thisContext);
     var currentView = data.view;
-    var viewOptions = {
-      templateData: options.data
-    };
+    viewOptions.templateData = options.data;
 
     if (fn) {
       Ember.assert("You cannot provide a template block if you also specified a templateName", !get(viewOptions, 'templateName') && !get(newView.proto(), 'templateName'));
       viewOptions.template = fn;
+    }
+
+    // We only want to override the `_context` computed property if there is
+    // no specified controller. See View#_context for more information.
+    if (VIEW_PRESERVES_CONTEXT && !newView.proto().controller && !newView.proto().controllerBinding && !viewOptions.controller && !viewOptions.controllerBinding) {
+      viewOptions._context = thisContext;
     }
 
     currentView.appendChild(newView, viewOptions);

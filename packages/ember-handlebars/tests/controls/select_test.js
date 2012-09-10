@@ -1,4 +1,4 @@
-var map = Ember.ArrayUtils.map;
+var map = Ember.EnumerableUtils.map;
 
 var dispatcher, select;
 
@@ -31,11 +31,15 @@ function append() {
 
 function selectedOptions() {
   var rv = [];
-  for(var i=0, len = select.getPath('content.length'); i < len; ++i) {
-    rv.push(select.getPath('childViews.' + i + '.childViews.0.selected'));
+  for(var i=0, len = select.get('content.length'); i < len; ++i) {
+    rv.push(select.get('childViews.' + i + '.childViews.0.selected'));
   }
   return rv;
 }
+
+test("has 'ember-view' and 'ember-select' CSS classes", function() {
+  deepEqual(select.get('classNames'), ['ember-view', 'ember-select']);
+});
 
 test("should render", function() {
   append();
@@ -50,6 +54,18 @@ test("can have options", function() {
 
   equal(select.$('option').length, 3, "Should have three options");
   equal(select.$().text(), "123", "Options should have content");
+});
+
+
+test("select tabindex is updated when setting tabindex property of view", function() {
+  select.set('tabindex', '4');
+  append();
+
+  equal(select.$().attr('tabindex'), "4", "renders select with the tabindex");
+
+  select.set('tabindex', '1');
+
+  equal(select.$().attr('tabindex'), "1", "updates select after tabindex changes");
 });
 
 test("can specify the property path for an option's label and value", function() {
@@ -96,7 +112,11 @@ test("can retrieve the current selected options when multiple=true", function() 
 
   deepEqual(select.get('selection'), [], "By default, nothing is selected");
 
-  select.$(':contains("Tom"), :contains("David")').each(function() { this.selected = true; });
+  select.$('option').each(function() {
+    if (this.value === 'Tom' || this.value === 'David') {
+      this.selected = true;
+    }
+  });
 
   select.$().trigger('change');
 
@@ -200,6 +220,21 @@ test("Ember.SelectedOption knows when it is selected when multiple=true", functi
   deepEqual(selectedOptions(), [false, true, true, false], "After changing it, selection should be correct");
 });
 
+test("Ember.SelectedOption knows when it is selected when multiple=true and options are primatives", function() {
+  select.set('content', Ember.A([1, 2, 3, 4]));
+  select.set('multiple', true);
+
+  select.set('selection', [1, 3]);
+
+  append();
+
+  deepEqual(selectedOptions(), [true, false, true, false], "Initial selection should be correct");
+
+  select.set('selection', [2, 3]);
+
+  deepEqual(selectedOptions(), [false, true, true, false], "After changing it, selection should be correct");
+});
+
 test("a prompt can be specified", function() {
   var yehuda = { id: 1, firstName: 'Yehuda' },
       tom = { id: 2, firstName: 'Tom' };
@@ -212,7 +247,8 @@ test("a prompt can be specified", function() {
 
   equal(select.$('option').length, 3, "There should be three options");
   equal(select.$()[0].selectedIndex, 0, "By default, the prompt is selected in the DOM");
-  equal(select.$().val(), 'Pick a person', "By default, the prompt is selected in the DOM");
+  equal(select.$('option:selected').text(), 'Pick a person', "By default, the prompt is selected in the DOM");
+  equal(select.$().val(), '', "By default, the prompt has no value");
 
   equal(select.get('selection'), null, "When the prompt is selected, the selection should be null");
 
@@ -402,4 +438,29 @@ test("upon content change, the DOM should reflect the selection (#481)", functio
 
   equal(select.get('selection'), 'd', "Selection was properly set after content change");
   equal(selectEl.selectedIndex, 1, "The DOM reflects the correct selection");
+});
+
+test("select element should initialize with the correct selectedIndex when using valueBinding", function() {
+  var view = Ember.View.create({
+    collection: Ember.A([{name: 'Wes', value: 'w'}, {name: 'Gordon', value: 'g'}]),
+    val: 'g',
+    template: Ember.Handlebars.compile(
+      '{{view Ember.Select viewName="select"' +
+      '    contentBinding="collection"' +
+      '    optionLabelPath="content.name"' +
+      '    optionValuePath="content.value"' +
+      '    prompt="Please wait..."' +
+      '    valueBinding="val"}}'
+    )
+  });
+
+  Ember.run(function() {
+    view.appendTo('#qunit-fixture');
+  });
+
+  var select = view.get('select'),
+      selectEl = select.$()[0];
+
+  equal(select.get('value'), 'g', "Precond: Initial selection is correct");
+  equal(selectEl.selectedIndex, 2, "Precond: The DOM reflects the correct selection");
 });

@@ -1,5 +1,5 @@
 // ==========================================================================
-// Project:   Ember Handlebar Views
+// Project:   Ember Handlebars Views
 // Copyright: ©2011 Strobe Inc. and contributors.
 // License:   Licensed under MIT license (see license.js)
 // ==========================================================================
@@ -10,14 +10,14 @@ require('ember-handlebars/views/metamorph_view');
 
 var get = Ember.get, set = Ember.set, fmt = Ember.String.fmt;
 var getPath = Ember.Handlebars.getPath, normalizePath = Ember.Handlebars.normalizePath;
-var forEach = Ember.ArrayUtils.forEach;
+var forEach = Ember.ArrayPolyfills.forEach;
 
 var EmberHandlebars = Ember.Handlebars, helpers = EmberHandlebars.helpers;
 
 // Binds a property into the DOM. This will create a hook in DOM that the
 // KVO system will look for and update if the property changes.
 /** @private */
-var bind = function(property, options, preserveContext, shouldDisplay, valueNormalizer) {
+function bind(property, options, preserveContext, shouldDisplay, valueNormalizer) {
   var data = options.data,
       fn = options.fn,
       inverse = options.inverse,
@@ -52,7 +52,7 @@ var bind = function(property, options, preserveContext, shouldDisplay, valueNorm
 
     /** @private */
     var observer = function() {
-      Ember.run.once(bindView, 'rerenderIfNeeded');
+      Ember.run.scheduleOnce('render', bindView, 'rerenderIfNeeded');
     };
 
     // Observes the given property on the context and
@@ -67,7 +67,7 @@ var bind = function(property, options, preserveContext, shouldDisplay, valueNorm
     // be done with it.
     data.buffer.push(getPath(pathRoot, path, options));
   }
-};
+}
 
 /**
   '_triageMustache' is used internally select between a binding and helper for
@@ -158,7 +158,7 @@ EmberHandlebars.registerHelper('boundIf', function(property, fn) {
 */
 EmberHandlebars.registerHelper('with', function(context, options) {
   if (arguments.length === 4) {
-    var keywordName, path;
+    var keywordName, path, rootPath, normalized;
 
     Ember.assert("If you pass more than one argument to the with helper, it must be in the form #with foo as bar", arguments[1] === "as");
     options = arguments[3];
@@ -167,13 +167,17 @@ EmberHandlebars.registerHelper('with', function(context, options) {
 
     Ember.assert("You must pass a block to the with helper", options.fn && options.fn !== Handlebars.VM.noop);
 
-    if (Ember.isGlobal(path)) {
+    if (Ember.isGlobalPath(path)) {
       Ember.bind(options.data.keywords, keywordName, path);
     } else {
+      normalized = normalizePath(this, path, options.data);
+      path = normalized.path;
+      rootPath = normalized.root;
+
       // This is a workaround for the fact that you cannot bind separate objects
       // together. When we implement that functionality, we should use it here.
-      var contextKey = Ember.$.expando + Ember.guidFor(this);
-      options.data.keywords[contextKey] = this;
+      var contextKey = Ember.$.expando + Ember.guidFor(rootPath);
+      options.data.keywords[contextKey] = rootPath;
 
       // if the path is '' ("this"), just bind directly to the current context
       var contextPath = path ? contextKey + '.' + path : contextKey;
@@ -259,7 +263,7 @@ EmberHandlebars.registerHelper('bindAttr', function(options) {
 
   // For each attribute passed, create an observer and emit the
   // current value of the property as an attribute.
-  forEach(attrKeys, function(attr) {
+  forEach.call(attrKeys, function(attr) {
     var path = attrs[attr],
         pathRoot, normalized;
 
@@ -289,7 +293,7 @@ EmberHandlebars.registerHelper('bindAttr', function(options) {
       // to which we were bound has been removed from the view.
       // In that case, we can assume the template has been re-rendered
       // and we need to clean up the observer.
-      if (elem.length === 0) {
+      if (!elem || elem.length === 0) {
         Ember.removeObserver(pathRoot, path, invoker);
         return;
       }
@@ -299,7 +303,7 @@ EmberHandlebars.registerHelper('bindAttr', function(options) {
 
     /** @private */
     invoker = function() {
-      Ember.run.once(observer);
+      Ember.run.scheduleOnce('render', observer);
     };
 
     // Add an observer to the view for when the property changes.
@@ -356,38 +360,24 @@ EmberHandlebars.bindClasses = function(context, classBindings, view, bindAttrId,
   // Helper method to retrieve the property from the context and
   // determine which class string to return, based on whether it is
   // a Boolean or not.
-  var classStringForPath = function(root, path, className, options) {
-    var val = path !== '' ? getPath(root, path, options) : true;
+  var classStringForPath = function(root, parsedPath, options) {
+    var val,
+        path = parsedPath.path;
 
-    // If the value is truthy and we're using the colon syntax,
-    // we should return the className directly
-    if (!!val && className) {
-      return className;
-
-    // If value is a Boolean and true, return the dasherized property
-    // name.
-    } else if (val === true) {
-      // Normalize property path to be suitable for use
-      // as a class name. For exaple, content.foo.barBaz
-      // becomes bar-baz.
-      var parts = path.split('.');
-      return Ember.String.dasherize(parts[parts.length-1]);
-
-    // If the value is not false, undefined, or null, return the current
-    // value of the property.
-    } else if (val !== false && val !== undefined && val !== null) {
-      return val;
-
-    // Nothing to display. Return null so that the old class is removed
-    // but no new class is added.
+    if (path === 'this') {
+      val = root;
+    } else if (path === '') {
+      val = true;
     } else {
-      return null;
+      val = getPath(root, path, options);
     }
+
+    return Ember.View._classStringForValue(path, val, parsedPath.className, parsedPath.falsyClassName);
   };
 
   // For each property passed, loop through and setup
   // an observer.
-  forEach(classBindings.split(' '), function(binding) {
+  forEach.call(classBindings.split(' '), function(binding) {
 
     // Variable in which the old class value is saved. The observer function
     // closes over this variable, so it knows which string to remove when
@@ -396,13 +386,12 @@ EmberHandlebars.bindClasses = function(context, classBindings, view, bindAttrId,
 
     var observer, invoker;
 
-    var split = binding.split(':'),
-        path = split[0],
-        className = split[1],
+    var parsedPath = Ember.View._parsePropertyPath(binding),
+        path = parsedPath.path,
         pathRoot = context,
         normalized;
 
-    if (path !== '') {
+    if (path !== '' && path !== 'this') {
       normalized = normalizePath(context, path, options.data);
 
       pathRoot = normalized.root;
@@ -414,12 +403,12 @@ EmberHandlebars.bindClasses = function(context, classBindings, view, bindAttrId,
     /** @private */
     observer = function() {
       // Get the current value of the property
-      newClass = classStringForPath(pathRoot, path, className, options);
+      newClass = classStringForPath(pathRoot, parsedPath, options);
       elem = bindAttrId ? view.$("[data-bindattr-" + bindAttrId + "='" + bindAttrId + "']") : view.$();
 
       // If we can't find the element anymore, a parent template has been
       // re-rendered and we've been nuked. Remove the observer.
-      if (elem.length === 0) {
+      if (!elem || elem.length === 0) {
         Ember.removeObserver(pathRoot, path, invoker);
       } else {
         // If we had previously added a class to the element, remove it.
@@ -440,16 +429,16 @@ EmberHandlebars.bindClasses = function(context, classBindings, view, bindAttrId,
 
     /** @private */
     invoker = function() {
-      Ember.run.once(observer);
+      Ember.run.scheduleOnce('render', observer);
     };
 
-    if (path !== '') {
+    if (path !== '' && path !== 'this') {
       Ember.addObserver(pathRoot, path, invoker);
     }
 
     // We've already setup the observer; now we just need to figure out the
     // correct behavior right now on the first pass through.
-    value = classStringForPath(pathRoot, path, className, options);
+    value = classStringForPath(pathRoot, parsedPath, options);
 
     if (value) {
       ret.push(value);

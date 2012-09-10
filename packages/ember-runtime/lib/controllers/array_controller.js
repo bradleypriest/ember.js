@@ -8,6 +8,8 @@ require('ember-runtime/system/array_proxy');
 require('ember-runtime/controllers/controller');
 require('ember-runtime/mixins/sortable');
 
+var get = Ember.get, set = Ember.set;
+
 /**
   @class
 
@@ -45,9 +47,9 @@ require('ember-runtime/mixins/sortable');
   controller, use this class.
 
   @extends Ember.ArrayProxy
+  @extends Ember.SortableMixin
+  @extends Ember.ControllerMixin
 */
-
-var get = Ember.get, set = Ember.set;
 
 Ember.ArrayController = Ember.ArrayProxy.extend(Ember.ControllerMixin,
   Ember.SortableMixin);

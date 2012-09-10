@@ -72,6 +72,61 @@ test("it updates the view if an item is removed", function() {
   assertHTML(view, "Annabelle");
 });
 
+test("it updates the view if an item is replaced", function() {
+  Ember.run(function() {
+    people.removeAt(0);
+    people.insertAt(0, { name: "Kazuki" });
+  });
+
+  assertHTML(view, "KazukiAnnabelle");
+});
+
+test("can add and replace in the same runloop", function() {
+  Ember.run(function() {
+    people.pushObject({ name: "Tom Dale" });
+    people.removeAt(0);
+    people.insertAt(0, { name: "Kazuki" });
+  });
+
+  assertHTML(view, "KazukiAnnabelleTom Dale");
+});
+
+test("can add and replace the object before the add in the same runloop", function() {
+  Ember.run(function() {
+    people.pushObject({ name: "Tom Dale" });
+    people.removeAt(1);
+    people.insertAt(1, { name: "Kazuki" });
+  });
+
+  assertHTML(view, "Steve HoltKazukiTom Dale");
+});
+
+test("can add and replace complicatedly", function() {
+  Ember.run(function() {
+    people.pushObject({ name: "Tom Dale" });
+    people.removeAt(1);
+    people.insertAt(1, { name: "Kazuki" });
+    people.pushObject({ name: "Firestone" });
+    people.pushObject({ name: "McMunch" });
+    people.removeAt(3);
+  });
+
+  assertHTML(view, "Steve HoltKazukiTom DaleMcMunch");
+});
+
+test("can add and replace complicatedly harder", function() {
+  Ember.run(function() {
+    people.pushObject({ name: "Tom Dale" });
+    people.removeAt(1);
+    people.insertAt(1, { name: "Kazuki" });
+    people.pushObject({ name: "Firestone" });
+    people.pushObject({ name: "McMunch" });
+    people.removeAt(2);
+  });
+
+  assertHTML(view, "Steve HoltKazukiFirestoneMcMunch");
+});
+
 test("it works inside a ul element", function() {
   var ulView = Ember.View.create({
     template: templateFor('<ul>{{#each people}}<li>{{name}}</li>{{/each}}</ul>'),
@@ -189,6 +244,34 @@ if (Ember.VIEW_PRESERVES_CONTEXT) {
     append(view);
 
     equal(view.$().text(), "My Cool Each Test 1My Cool Each Test 2");
+  });
+
+  test("views inside #each preserve the new context", function() {
+    var controller = Ember.A([ { name: "Adam" }, { name: "Steve" } ]);
+
+    view = Ember.View.create({
+      controller: controller,
+      template: templateFor('{{#each controller}}{{#view}}{{name}}{{/view}}{{/each}}')
+    });
+
+    append(view);
+
+    equal(view.$().text(), "AdamSteve");
+  });
+
+  test("controller is assignable inside an #each", function() {
+    var controller = Ember.ArrayController.create({
+      content: Ember.A([ { name: "Adam" }, { name: "Steve" } ])
+    });
+
+    view = Ember.View.create({
+      controller: controller,
+      template: templateFor('{{#each itemController in this}}{{#view controllerBinding="itemController"}}{{name}}{{/view}}{{/each}}')
+    });
+
+    append(view);
+
+    equal(view.$().text(), "AdamSteve");
   });
 
 }

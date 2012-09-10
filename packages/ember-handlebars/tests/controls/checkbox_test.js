@@ -1,5 +1,5 @@
 // ==========================================================================
-// Project:   Ember Handlebar Views
+// Project:   Ember Handlebars Views
 // Copyright: ©2011 Strobe Inc. and contributors.
 // License:   Licensed under MIT license (see license.js)
 // ==========================================================================
@@ -52,6 +52,19 @@ test("should become disabled if the disabled attribute is changed", function() {
   Ember.run(function() { checkboxView.set('disabled', false); });
   ok(checkboxView.$().is(":not(:disabled)"));
 });
+
+test("should support the tabindex property", function() {
+  checkboxView = Ember.Checkbox.create({});
+
+  checkboxView.set('tabindex', 6);
+  append();
+
+  equal(checkboxView.$().prop('tabindex'), '6', 'the initial checkbox tabindex is set in the DOM');
+
+  checkboxView.set('tabindex', 3);
+  equal(checkboxView.$().prop('tabindex'), '3', 'the checkbox tabindex changes when it is changed in the view');  
+});
+
 
 test("checked property mirrors input value", function() {
   checkboxView = Ember.Checkbox.create({});

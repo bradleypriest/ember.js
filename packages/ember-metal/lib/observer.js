@@ -15,8 +15,7 @@ var BEFORE_OBSERVERS = ':before';
 var guidFor = Ember.guidFor;
 
 var deferred = 0;
-var array_Slice = Array.prototype.slice;
-var array_ForEach = Ember.ArrayUtils.forEach;
+var array_Slice = [].slice;
 
 /** @private */
 var ObserverSet = function () {
@@ -45,7 +44,7 @@ var DeferredEventQueue = function() {
   this.queue = [];
 };
 
-DeferredEventQueue.prototype.push = function(target, eventName) {
+DeferredEventQueue.prototype.push = function(target, eventName, keyName) {
   var targetSet = this.targetSet,
     queue = this.queue,
     targetGuid = Ember.guidFor(target),
@@ -57,9 +56,9 @@ DeferredEventQueue.prototype.push = function(target, eventName) {
   }
   index = eventNameSet[eventName];
   if (index === undefined) {
-    eventNameSet[eventName] = queue.push(Ember.deferEvent(target, eventName)) - 1;
+    eventNameSet[eventName] = queue.push(Ember.deferEvent(target, eventName, [target, keyName])) - 1;
   } else {
-    queue[index] = Ember.deferEvent(target, eventName);
+    queue[index] = Ember.deferEvent(target, eventName, [target, keyName]);
   }
 };
 
@@ -75,11 +74,11 @@ DeferredEventQueue.prototype.flush = function() {
 var queue = new DeferredEventQueue(), beforeObserverSet = new ObserverSet();
 
 /** @private */
-function notifyObservers(obj, eventName, forceNotification) {
+function notifyObservers(obj, eventName, keyName, forceNotification) {
   if (deferred && !forceNotification) {
-    queue.push(obj, eventName);
+    queue.push(obj, eventName, keyName);
   } else {
-    Ember.sendEvent(obj, eventName);
+    Ember.sendEvent(obj, eventName, [obj, keyName]);
   }
 }
 
@@ -143,47 +142,8 @@ function beforeEvent(keyName) {
   return keyName+BEFORE_OBSERVERS;
 }
 
-/** @private */
-function changeKey(eventName) {
-  return eventName.slice(0, -7);
-}
-
-/** @private */
-function beforeKey(eventName) {
-  return eventName.slice(0, -7);
-}
-
-/** @private */
-function xformForArgs(args) {
-  return function (target, method, params) {
-    var obj = params[0], keyName = changeKey(params[1]), val;
-    var copy_args = args.slice();
-    if (method.length>2) {
-      val = Ember.getPath(Ember.isGlobalPath(keyName) ? window : obj, keyName);
-    }
-    copy_args.unshift(obj, keyName, val);
-    method.apply(target, copy_args);
-  };
-}
-
-var xformChange = xformForArgs([]);
-
-/** @private */
-function xformBefore(target, method, params) {
-  var obj = params[0], keyName = beforeKey(params[1]), val;
-  if (method.length>2) val = Ember.getPath(obj, keyName);
-  method.call(target, obj, keyName, val);
-}
-
 Ember.addObserver = function(obj, path, target, method) {
-  var xform;
-  if (arguments.length > 4) {
-    var args = array_Slice.call(arguments, 4);
-    xform = xformForArgs(args);
-  } else {
-    xform = xformChange;
-  }
-  Ember.addListener(obj, changeEvent(path), target, method, xform);
+  Ember.addListener(obj, changeEvent(path), target, method);
   Ember.watch(obj, path);
   return this;
 };
@@ -200,7 +160,7 @@ Ember.removeObserver = function(obj, path, target, method) {
 };
 
 Ember.addBeforeObserver = function(obj, path, target, method) {
-  Ember.addListener(obj, beforeEvent(path), target, method, xformBefore);
+  Ember.addListener(obj, beforeEvent(path), target, method);
   Ember.watch(obj, path);
   return this;
 };
@@ -218,6 +178,18 @@ Ember._suspendObserver = function(obj, path, target, method, callback) {
   return Ember._suspendListener(obj, changeEvent(path), target, method, callback);
 };
 
+var map = Ember.ArrayPolyfills.map;
+
+Ember._suspendBeforeObservers = function(obj, paths, target, method, callback) {
+  var events = map.call(paths, beforeEvent);
+  return Ember._suspendListeners(obj, events, target, method, callback);
+};
+
+Ember._suspendObservers = function(obj, paths, target, method, callback) {
+  var events = map.call(paths, changeEvent);
+  return Ember._suspendListeners(obj, events, target, method, callback);
+};
+
 /** @private */
 Ember.beforeObserversFor = function(obj, path) {
   return Ember.listenersFor(obj, beforeEvent(path));
@@ -233,7 +205,7 @@ Ember.removeBeforeObserver = function(obj, path, target, method) {
 Ember.notifyObservers = function(obj, keyName) {
   if (obj.isDestroying) { return; }
 
-  notifyObservers(obj, changeEvent(keyName));
+  notifyObservers(obj, changeEvent(keyName), keyName);
 };
 
 /** @private */
@@ -250,6 +222,6 @@ Ember.notifyBeforeObservers = function(obj, keyName) {
     }
   }
 
-  notifyObservers(obj, beforeEvent(keyName), forceNotification);
+  notifyObservers(obj, beforeEvent(keyName), keyName, forceNotification);
 };
 

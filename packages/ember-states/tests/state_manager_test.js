@@ -1,4 +1,4 @@
-var get = Ember.get, set = Ember.set, getPath = Ember.getPath, setPath = Ember.setPath;
+var get = Ember.get, set = Ember.set;
 
 var stateManager, loadingState, loadedState, stateEventStub = {
   entered: 0,
@@ -77,6 +77,16 @@ test("it reports its current state", function() {
   ok(get(stateManager, 'currentState') === loadedState, "currentState can change to a sibling state");
 });
 
+test("it reports its current state path", function() {
+  strictEqual(get(stateManager, 'currentPath'), null, "currentPath defaults to null if no state is specified");
+
+  stateManager.transitionTo('loadingState');
+  equal(get(stateManager, 'currentPath'), 'loadingState', "currentPath changes after transitionTo() is called");
+
+  stateManager.transitionTo('loadedState');
+  equal(get(stateManager, 'currentPath'), 'loadedState', "currentPath can change to a sibling state");
+});
+
 test("it sends enter and exit events during state transitions", function() {
   stateManager.transitionTo('loadingState');
 
@@ -105,44 +115,6 @@ test("it sends enter and exit events during state transitions", function() {
   equal(loadedState.exited, 1, "sibling state should receive one exit event");
 });
 
-test("a transition can be asynchronous", function() {
-  expect(1);
-
-  var counter = 0;
-  var stateManager = Ember.StateManager.create({
-    start: Ember.State.create({
-      finish: function(manager) {
-        manager.transitionTo('finished');
-      },
-
-      exit: function(manager, transition) {
-        // pause QUnit while we test some async functionality
-        stop();
-
-        transition.async();
-
-        setTimeout(function() {
-          counter++;
-          transition.resume();
-        }, 50);
-      }
-    }),
-
-    finished: Ember.State.create({
-      enter: function() {
-        equal(counter, 1, "increments counter and executes transition after specified timeout");
-        start();
-      },
-
-      exit: function() {
-        equal(arguments.length, 0, "does not pass transition object if arguments are empty");
-      }
-    })
-  });
-
-  stateManager.send('finish');
-});
-
 test("it accepts absolute paths when changing states", function() {
   var emptyState = loadedState.empty;
 
@@ -163,7 +135,10 @@ test("it does not enter an infinite loop in transitionTo", function() {
   stateManager.transitionTo('');
   ok(stateManager.get('currentState') === emptyState, "transitionTo does nothing when given empty name");
 
-  stateManager.transitionTo('nonexistentState');
+  raises(function() {
+    stateManager.transitionTo('nonexistentState');
+  }, 'Could not find state for path: "nonexistentState"');
+
   ok(stateManager.get('currentState') === emptyState, "transitionTo does not infinite loop when given nonexistent State");
 });
 
@@ -230,6 +205,40 @@ test("it automatically transitions to a default substate specified using the ini
   ok(get(stateManager, 'currentState').isStart, "automatically transitions to beginning substate");
 });
 
+test("it automatically synchronously transitions into initialState in an event", function() {
+  var count = 0;
+
+  stateManager = Ember.StateManager.create({
+    root: Ember.State.create({
+      original: Ember.State.create({
+        zomgAnEvent: function(manager) {
+          manager.transitionTo('nextState');
+          manager.send('zomgAnotherEvent');
+        }
+      }),
+
+      nextState: Ember.State.create({
+        initialState: 'begin',
+
+        begin: Ember.State.create({
+          zomgAnotherEvent: function(manager) {
+            count++;
+          }
+        })
+      })
+    })
+  });
+
+  Ember.run(function() {
+    stateManager.transitionTo('root.original');
+  });
+
+  Ember.run(function() {
+    stateManager.send('zomgAnEvent');
+    equal(count, 1, "the initialState was synchronously effective");
+  });
+});
+
 test("it automatically transitions to multiple substates specified using either start or initialState property", function() {
   stateManager = Ember.StateManager.create({
     start: Ember.State.create({
@@ -248,6 +257,34 @@ test("it automatically transitions to multiple substates specified using either 
   });
 
   ok(get(stateManager, 'currentState').isStart, "automatically transitions to final substate");
+});
+
+test("it triggers setup on initialSubstate", function() {
+  var parentSetup = false,
+      childSetup = false,
+      grandchildSetup = false;
+
+  stateManager = Ember.StateManager.create({
+    start: Ember.State.create({
+      setup: function() { parentSetup = true; },
+
+      initialState: 'childState',
+
+      childState: Ember.State.create({
+        setup: function() { childSetup = true; },
+
+        initialState: 'grandchildState',
+
+        grandchildState: Ember.State.create({
+          setup: function() { grandchildSetup = true; }
+        })
+      })
+    })
+  });
+
+  ok(parentSetup, "sets up parent");
+  ok(childSetup, "sets up child");
+  ok(grandchildSetup, "sets up grandchild");
 });
 
 test("it throws an assertion error when the initialState does not exist", function() {
@@ -521,22 +558,16 @@ test("if a context is passed to a transition and the path is to the current stat
 });
 
 test("if no context is provided, setup is triggered with an undefined context", function() {
-  expect(2);
+  expect(1);
 
   Ember.run(function() {
     stateManager = Ember.StateManager.create({
       start: Ember.State.create({
         goNext: function(manager) {
-          manager.transitionTo('foo.next');
-        }
-      }),
+          manager.transitionTo('next');
+        },
 
-      foo: Ember.State.create({
         next: Ember.State.create({
-          goNext: function(manager, context) {
-            manager.transitionTo('next');
-          },
-
           setup: function(manager, context) {
             equal(context, undefined, "setup is called with no context");
           }
@@ -546,7 +577,6 @@ test("if no context is provided, setup is triggered with an undefined context", 
   });
 
   stateManager.send('goNext');
-  stateManager.send('goNext');
 });
 
 test("multiple contexts can be provided in a single transitionTo", function() {
@@ -554,11 +584,7 @@ test("multiple contexts can be provided in a single transitionTo", function() {
 
   Ember.run(function() {
     stateManager = Ember.StateManager.create({
-      start: Ember.State.create({
-        goNuts: function(manager, context) {
-          manager.transitionTo('foo.next', context);
-        }
-      }),
+      start: Ember.State.create(),
 
       planters: Ember.State.create({
         setup: function(manager, context) {
@@ -574,5 +600,165 @@ test("multiple contexts can be provided in a single transitionTo", function() {
     });
   });
 
-  stateManager.transitionTo(['planters', { company: true }], ['nuts', { product: true }]);
+  stateManager.transitionTo('planters.nuts', { company: true }, { product: true });
+});
+
+test("multiple contexts only apply to states that need them", function() {
+  expect(4);
+
+  Ember.run(function() {
+    stateManager = Ember.StateManager.create({
+      start: Ember.State.create(),
+
+      parent: Ember.State.create({
+        hasContext: false,
+
+        setup: function(manager, context) {
+          equal(context, undefined);
+        },
+
+        child: Ember.State.create({
+          setup: function(manager, context) {
+            equal(context, 'one');
+          },
+
+          grandchild: Ember.State.create({
+            initialState: 'greatGrandchild',
+
+            setup: function(manager, context) {
+              equal(context, 'two');
+            },
+
+            greatGrandchild: Ember.State.create({
+              setup: function(manager, context) {
+                equal(context, undefined);
+              }
+            })
+          })
+        })
+      })
+    });
+  });
+
+  stateManager.transitionTo('parent.child.grandchild', 'one', 'two');
+});
+
+test("transitionEvent is called for each nested state", function() {
+  expect(4);
+
+  var calledOnParent = false,
+      calledOnChild = true;
+
+  Ember.run(function() {
+    stateManager = Ember.StateManager.create({
+      start: Ember.State.create(),
+
+      planters: Ember.State.create({
+        setup: function(manager, context) {
+          calledOnParent = true;
+        },
+
+        nuts: Ember.State.create({
+          setup: function(manager, context) {
+            calledOnChild = true;
+          }
+        })
+      })
+    });
+  });
+
+  stateManager.transitionTo('planters.nuts');
+
+  ok(calledOnParent, 'called transitionEvent on parent');
+  ok(calledOnChild, 'called transitionEvent on child');
+
+  // repeat the test now that the path is cached
+
+  stateManager.transitionTo('start');
+
+  calledOnParent = false;
+  calledOnChild = false;
+
+  stateManager.transitionTo('planters.nuts');
+
+  ok(calledOnParent, 'called transitionEvent on parent');
+  ok(calledOnChild, 'called transitionEvent on child');
+});
+
+test("transitionEvent is called for each nested state with context", function() {
+  expect(8);
+
+  var calledOnParent = false,
+      calledOnChild = true;
+
+  Ember.run(function() {
+    stateManager = Ember.StateManager.create({
+      start: Ember.State.create(),
+
+      planters: Ember.State.create({
+        setup: function(manager, context) {
+          calledOnParent = true;
+          ok(!context, 'single context is not called on parent');
+        },
+
+        nuts: Ember.State.create({
+          setup: function(manager, context) {
+            calledOnChild = true;
+            equal(context, 'context', 'child gets context');
+          }
+        })
+      })
+    });
+  });
+
+  stateManager.transitionTo('planters.nuts', 'context');
+
+  ok(calledOnParent, 'called transitionEvent on parent');
+  ok(calledOnChild, 'called transitionEvent on child');
+
+  // repeat the test now that the path is cached
+
+  stateManager.transitionTo('start');
+
+  calledOnParent = false;
+  calledOnChild = false;
+
+  stateManager.transitionTo('planters.nuts', 'context');
+
+  ok(calledOnParent, 'called transitionEvent on parent');
+  ok(calledOnChild, 'called transitionEvent on child');
+});
+
+test("nothing happens if transitioning to a parent state when the current state is also the initial state", function() {
+  var calledOnParent = 0,
+      calledOnChild = 0;
+
+  Ember.run(function() {
+    stateManager = Ember.StateManager.create({
+      start: Ember.State.create({
+        initialState: 'first',
+
+        setup: function() {
+          calledOnParent++;
+        },
+
+        first: Ember.State.create({
+          setup: function() {
+            calledOnChild++;
+          }
+        })
+      })
+    });
+  });
+
+  equal(calledOnParent, 1, 'precond - setup parent');
+  equal(calledOnChild, 1, 'precond - setup child');
+  equal(stateManager.get('currentState.path'), 'start.first', 'precond - is in expected state');
+
+  stateManager.transitionTo('start');
+
+  equal(calledOnParent, 1, 'does not transition to parent again');
+  equal(calledOnChild, 1, 'does not transition to child again');
+  equal(stateManager.get('currentState.path'), 'start.first', 'does not change state');
+
 });

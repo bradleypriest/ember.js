@@ -1,5 +1,5 @@
 // ==========================================================================
-// Project:   Ember Handlebar Views
+// Project:   Ember Handlebars Views
 // Copyright: ©2011 Strobe Inc. and contributors.
 // License:   Licensed under MIT license (see license.js)
 // ==========================================================================
@@ -27,7 +27,7 @@ var get = Ember.get, getPath = Ember.Handlebars.getPath, fmt = Ember.String.fmt;
 
       <script type="text/x-handlebars">
         {{#collection contentBinding="App.items"}}
-          Hi {{content.name}}
+          Hi {{view.content.name}}
         {{/collection}}
       </script>
 
@@ -68,7 +68,7 @@ var get = Ember.get, getPath = Ember.Handlebars.getPath, fmt = Ember.String.fmt;
       ]
 
       App.AnItemView = Ember.View.extend({
-        template: Ember.Handlebars.compile("Greetings {{content.name}}")
+        template: Ember.Handlebars.compile("Greetings {{view.content.name}}")
       })
 
   Will result in the HTML structure below
@@ -86,7 +86,7 @@ var get = Ember.get, getPath = Ember.Handlebars.getPath, fmt = Ember.String.fmt;
 
       <script type="text/x-handlebars">
         {{#collection App.MyCustomCollectionClass contentBinding="App.items"}}
-          Hi {{content.name}}
+          Hi {{view.content.name}}
         {{/collection}}
       </script>
 
@@ -100,7 +100,7 @@ var get = Ember.get, getPath = Ember.Handlebars.getPath, fmt = Ember.String.fmt;
           {{#collection contentBinding="App.items"
                         itemTagName="p"
                         itemClassNames="greeting"}}
-            Howdy {{content.name}}
+            Howdy {{view.content.name}}
           {{/collection}}
         </script>
 
@@ -135,7 +135,7 @@ Ember.Handlebars.registerHelper('collection', function(path, options) {
   // Otherwise, just default to the standard class.
   var collectionClass;
   collectionClass = path ? getPath(this, path, options) : Ember.CollectionView;
-  Ember.assert(fmt("%@ #collection: Could not find %@", data.view, path), !!collectionClass);
+  Ember.assert(fmt("%@ #collection: Could not find collection class %@", [data.view, path]), !!collectionClass);
 
   var hash = options.hash, itemHash = {}, match;
 
@@ -144,7 +144,7 @@ Ember.Handlebars.registerHelper('collection', function(path, options) {
   var collectionPrototype = collectionClass.proto();
   delete hash.itemViewClass;
   itemViewClass = itemViewPath ? getPath(collectionPrototype, itemViewPath, options) : collectionPrototype.itemViewClass;
-  Ember.assert(fmt("%@ #collection: Could not find %@", data.view, itemViewPath), !!itemViewClass);
+  Ember.assert(fmt("%@ #collection: Could not find itemViewClass %@", [data.view, itemViewPath]), !!itemViewClass);
 
   // Go through options passed to the {{collection}} helper and extract options
   // that configure item views instead of the collection itself.
@@ -188,7 +188,8 @@ Ember.Handlebars.registerHelper('collection', function(path, options) {
     delete hash.eachHelper;
   }
 
-  hash.itemViewClass = Ember.Handlebars.ViewHelper.viewClassFromHTMLOptions(itemViewClass, { data: data, hash: itemHash }, this);
+  var viewOptions = Ember.Handlebars.ViewHelper.propertiesFromHTMLOptions({ data: data, hash: itemHash }, this);
+  hash.itemViewClass = itemViewClass.extend(viewOptions);
 
   return Ember.Handlebars.helpers.view.call(this, collectionClass, options);
 });

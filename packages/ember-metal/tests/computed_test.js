@@ -26,12 +26,6 @@ test('defining computed property should invoke property on get', function() {
 
   equal(Ember.get(obj, 'foo'), 'computed foo', 'should return value');
   equal(count, 1, 'should have invoked computed property');
-
-  if (Ember.USES_ACCESSORS) {
-    count = 0;
-    equal(Ember.get(obj, 'foo'), 'computed foo', 'should return value');
-    equal(count, 1, 'should have invoked computed property');
-  }
 });
 
 test('defining computed property should invoke property on set', function() {
@@ -49,13 +43,6 @@ test('defining computed property should invoke property on set', function() {
   equal(Ember.set(obj, 'foo', 'bar'), 'bar', 'should return set value');
   equal(count, 1, 'should have invoked computed property');
   equal(Ember.get(obj, 'foo'), 'computed bar', 'should return new value');
-
-  if (Ember.USES_ACCESSORS) {
-    count = 0;
-    equal(obj.foo = 'bar', 'bar', 'shoudl return set value');
-    equal(count, 1, 'should have invoked computed property');
-    equal(Ember.get(obj, 'foo'), 'computed bar', 'should return value');
-  }
 });
 
 var objA, objB;
@@ -173,13 +160,19 @@ testBoth('using get() and set()', function(get, set) {
   equal(get(objB, 'foo'), 'B bar', 'should NOT change B');
 });
 
+module('Ember.computed - metadata');
 
-module("can set metadata on a computed property", function() {
+test("can set metadata on a computed property", function() {
   var computedProperty = Ember.computed(function() { });
   computedProperty.property();
   computedProperty.meta({ key: 'keyValue' });
 
-  equal(computedProperty._meta.key, 'keyValue', "saves passed meta hash to the _meta property");
+  equal(computedProperty.meta().key, 'keyValue', "saves passed meta hash to the _meta property");
+});
+
+test("meta should return an empty hash if no meta is set", function() {
+  var computedProperty = Ember.computed(function() { });
+  deepEqual(computedProperty.meta(), {}, "returned value is an empty hash");
 });
 
 // ..........................................................
@@ -255,8 +248,6 @@ testBoth('cacheFor should return falsy cached values', function(get, set) {
 // DEPENDENT KEYS
 //
 
-Ember.STOP = true;
-
 module('Ember.computed - dependentkey', {
   setup: function() {
     obj = { bar: 'baz' };
@@ -272,8 +263,28 @@ module('Ember.computed - dependentkey', {
   }
 });
 
+test('should lazily watch dependent keys when watched itself', function () {
+  equal(Ember.isWatching(obj, 'bar'), false, 'precond not watching dependent key');
+  Ember.watch(obj, 'foo');
+  equal(Ember.isWatching(obj, 'bar'), true, 'lazily watching dependent key');
+});
+
+testBoth('should lazily watch dependent keys on set', function (get, set) {
+  equal(Ember.isWatching(obj, 'bar'), false, 'precond not watching dependent key');
+  set(obj, 'foo', 'bar');
+  equal(Ember.isWatching(obj, 'bar'), true, 'lazily watching dependent key');
+});
+
+testBoth('should lazily watch dependent keys on get', function (get, set) {
+  equal(Ember.isWatching(obj, 'bar'), false, 'precond not watching dependent key');
+  get(obj, 'foo');
+  equal(Ember.isWatching(obj, 'bar'), true, 'lazily watching dependent key');
+});
+
 testBoth('local dependent key should invalidate cache', function(get, set) {
+  equal(Ember.isWatching(obj, 'bar'), false, 'precond not watching dependent key');
   equal(get(obj, 'foo'), 'bar 1', 'get once');
+  equal(Ember.isWatching(obj, 'bar'), true, 'lazily setup watching dependent key');
   equal(get(obj, 'foo'), 'bar 1', 'cached retrieve');
 
   set(obj, 'bar', 'BIFF'); // should invalidate foo
@@ -289,13 +300,21 @@ testBoth('should invalidate multiple nested dependent keys', function(get, set) 
     return 'baz '+count;
   }).property('baz').cacheable());
 
+  equal(Ember.isWatching(obj, 'bar'), false, 'precond not watching dependent key');
+  equal(Ember.isWatching(obj, 'baz'), false, 'precond not watching dependent key');
   equal(get(obj, 'foo'), 'bar 1', 'get once');
+  equal(Ember.isWatching(obj, 'bar'), true, 'lazily setup watching dependent key');
+  equal(Ember.isWatching(obj, 'baz'), true, 'lazily setup watching dependent key');
   equal(get(obj, 'foo'), 'bar 1', 'cached retrieve');
 
   set(obj, 'baz', 'BIFF'); // should invalidate bar -> foo
+  equal(Ember.isWatching(obj, 'bar'), false, 'should not be watching dependent key after cache cleared');
+  equal(Ember.isWatching(obj, 'baz'), false, 'should not be watching dependent key after cache cleared');
 
   equal(get(obj, 'foo'), 'bar 2', 'should recache');
   equal(get(obj, 'foo'), 'bar 2', 'cached retrieve');
+  equal(Ember.isWatching(obj, 'bar'), true, 'lazily setup watching dependent key');
+  equal(Ember.isWatching(obj, 'baz'), true, 'lazily setup watching dependent key');
 });
 
 testBoth('circular keys should not blow up', function(get, set) {
@@ -321,12 +340,16 @@ testBoth('circular keys should not blow up', function(get, set) {
 
 testBoth('redefining a property should undo old depenent keys', function(get ,set) {
 
+  equal(Ember.isWatching(obj, 'bar'), false, 'precond not watching dependent key');
   equal(get(obj, 'foo'), 'bar 1');
+  equal(Ember.isWatching(obj, 'bar'), true, 'lazily watching dependent key');
 
   Ember.defineProperty(obj, 'foo', Ember.computed(function() {
     count++;
     return 'baz '+count;
   }).property('baz').cacheable());
+
+  equal(Ember.isWatching(obj, 'bar'), false, 'after redefining should not be watching dependent key');
 
   equal(get(obj, 'foo'), 'baz 2');
 
@@ -366,7 +389,7 @@ var func, moduleOpts = {
     count = 0;
     func = function() {
       count++;
-      return Ember.getPath(obj, 'foo.bar.baz.biff')+' '+count;
+      return Ember.get(obj, 'foo.bar.baz.biff')+' '+count;
     };
   },
 
@@ -385,15 +408,15 @@ testBoth('depending on simple chain', function(get, set) {
 
   equal(get(obj, 'prop'), 'BIFF 1');
 
-  set(Ember.getPath(obj, 'foo.bar.baz'), 'biff', 'BUZZ');
+  set(Ember.get(obj, 'foo.bar.baz'), 'biff', 'BUZZ');
   equal(get(obj, 'prop'), 'BUZZ 2');
   equal(get(obj, 'prop'), 'BUZZ 2');
 
-  set(Ember.getPath(obj, 'foo.bar'),  'baz', { biff: 'BLOB' });
+  set(Ember.get(obj, 'foo.bar'),  'baz', { biff: 'BLOB' });
   equal(get(obj, 'prop'), 'BLOB 3');
   equal(get(obj, 'prop'), 'BLOB 3');
 
-  set(Ember.getPath(obj, 'foo.bar.baz'), 'biff', 'BUZZ');
+  set(Ember.get(obj, 'foo.bar.baz'), 'biff', 'BUZZ');
   equal(get(obj, 'prop'), 'BUZZ 4');
   equal(get(obj, 'prop'), 'BUZZ 4');
 
@@ -401,7 +424,7 @@ testBoth('depending on simple chain', function(get, set) {
   equal(get(obj, 'prop'), 'BOOM 5');
   equal(get(obj, 'prop'), 'BOOM 5');
 
-  set(Ember.getPath(obj, 'foo.bar.baz'), 'biff', 'BUZZ');
+  set(Ember.get(obj, 'foo.bar.baz'), 'biff', 'BUZZ');
   equal(get(obj, 'prop'), 'BUZZ 6');
   equal(get(obj, 'prop'), 'BUZZ 6');
 
@@ -409,7 +432,7 @@ testBoth('depending on simple chain', function(get, set) {
   equal(get(obj, 'prop'), 'BLARG 7');
   equal(get(obj, 'prop'), 'BLARG 7');
 
-  set(Ember.getPath(obj, 'foo.bar.baz'), 'biff', 'BUZZ');
+  set(Ember.get(obj, 'foo.bar.baz'), 'biff', 'BUZZ');
   equal(get(obj, 'prop'), 'BUZZ 8');
   equal(get(obj, 'prop'), 'BUZZ 8');
 
@@ -428,20 +451,20 @@ testBoth('depending on Global chain', function(get, set) {
   // assign computed property
   Ember.defineProperty(obj, 'prop', Ember.computed(function() {
     count++;
-    return Ember.getPath('Global.foo.bar.baz.biff')+' '+count;
+    return Ember.get('Global.foo.bar.baz.biff')+' '+count;
   }).property('Global.foo.bar.baz.biff').cacheable());
 
   equal(get(obj, 'prop'), 'BIFF 1');
 
-  set(Ember.getPath(Global, 'foo.bar.baz'), 'biff', 'BUZZ');
+  set(Ember.get(Global, 'foo.bar.baz'), 'biff', 'BUZZ');
   equal(get(obj, 'prop'), 'BUZZ 2');
   equal(get(obj, 'prop'), 'BUZZ 2');
 
-  set(Ember.getPath(Global, 'foo.bar'), 'baz', { biff: 'BLOB' });
+  set(Ember.get(Global, 'foo.bar'), 'baz', { biff: 'BLOB' });
   equal(get(obj, 'prop'), 'BLOB 3');
   equal(get(obj, 'prop'), 'BLOB 3');
 
-  set(Ember.getPath(Global, 'foo.bar.baz'), 'biff', 'BUZZ');
+  set(Ember.get(Global, 'foo.bar.baz'), 'biff', 'BUZZ');
   equal(get(obj, 'prop'), 'BUZZ 4');
   equal(get(obj, 'prop'), 'BUZZ 4');
 
@@ -449,7 +472,7 @@ testBoth('depending on Global chain', function(get, set) {
   equal(get(obj, 'prop'), 'BOOM 5');
   equal(get(obj, 'prop'), 'BOOM 5');
 
-  set(Ember.getPath(Global, 'foo.bar.baz'), 'biff', 'BUZZ');
+  set(Ember.get(Global, 'foo.bar.baz'), 'biff', 'BUZZ');
   equal(get(obj, 'prop'), 'BUZZ 6');
   equal(get(obj, 'prop'), 'BUZZ 6');
 
@@ -457,7 +480,7 @@ testBoth('depending on Global chain', function(get, set) {
   equal(get(obj, 'prop'), 'BLARG 7');
   equal(get(obj, 'prop'), 'BLARG 7');
 
-  set(Ember.getPath(Global, 'foo.bar.baz'), 'biff', 'BUZZ');
+  set(Ember.get(Global, 'foo.bar.baz'), 'biff', 'BUZZ');
   equal(get(obj, 'prop'), 'BUZZ 8');
   equal(get(obj, 'prop'), 'BUZZ 8');
 
@@ -491,8 +514,70 @@ test('adding a computed property should show up in key iteration',function() {
 
   var found = [];
   for(var key in obj) found.push(key);
-  ok(Ember.ArrayUtils.indexOf(found, 'foo')>=0, 'should find computed property in iteration found='+found);
+  ok(Ember.EnumerableUtils.indexOf(found, 'foo')>=0, 'should find computed property in iteration found='+found);
   ok('foo' in obj, 'foo in obj should pass');
+});
+
+
+module('Ember.computed - setter');
+
+testBoth('setting a watched computed property', function(get, set) {
+  var obj = {
+    firstName: 'Yehuda',
+    lastName: 'Katz'
+  };
+  Ember.defineProperty(obj, 'fullName', Ember.computed(
+    function(key, value) {
+      if (arguments.length > 1) {
+        var values = value.split(' ');
+        set(this, 'firstName', values[0]);
+        set(this, 'lastName', values[1]);
+        return value;
+      }
+      return get(this, 'firstName') + ' ' + get(this, 'lastName');
+    }).property('firstName', 'lastName').cacheable()
+  );
+  var fullNameWillChange = 0,
+      fullNameDidChange = 0,
+      firstNameWillChange = 0,
+      firstNameDidChange = 0,
+      lastNameWillChange = 0,
+      lastNameDidChange = 0;
+  Ember.addBeforeObserver(obj, 'fullName', function () {
+    fullNameWillChange++;
+  });
+  Ember.addObserver(obj, 'fullName', function () {
+    fullNameDidChange++;
+  });
+  Ember.addBeforeObserver(obj, 'firstName', function () {
+    firstNameWillChange++;
+  });
+  Ember.addObserver(obj, 'firstName', function () {
+    firstNameDidChange++;
+  });
+  Ember.addBeforeObserver(obj, 'lastName', function () {
+    lastNameWillChange++;
+  });
+  Ember.addObserver(obj, 'lastName', function () {
+    lastNameDidChange++;
+  });
+
+  equal(get(obj, 'fullName'), 'Yehuda Katz');
+
+  set(obj, 'fullName', 'Yehuda Katz');
+
+  set(obj, 'fullName', 'Kris Selden');
+
+  equal(get(obj, 'fullName'), 'Kris Selden');
+  equal(get(obj, 'firstName'), 'Kris');
+  equal(get(obj, 'lastName'), 'Selden');
+
+  equal(fullNameWillChange, 1);
+  equal(fullNameDidChange, 1);
+  equal(firstNameWillChange, 1);
+  equal(firstNameDidChange, 1);
+  equal(lastNameWillChange, 1);
+  equal(lastNameDidChange, 1);
 });
 
 module('CP macros');
@@ -500,6 +585,10 @@ module('CP macros');
 testBoth('Ember.computed.not', function(get, set) {
   var obj = {foo: true};
   Ember.defineProperty(obj, 'notFoo', Ember.computed.not('foo'));
+  equal(get(obj, 'notFoo'), false);
+
+  obj = {foo: {bar: true}};
+  Ember.defineProperty(obj, 'notFoo', Ember.computed.not('foo.bar'));
   equal(get(obj, 'notFoo'), false);
 });
 

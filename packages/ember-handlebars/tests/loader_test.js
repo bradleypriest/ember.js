@@ -51,20 +51,6 @@ test('inline template should be added', function() {
   equal(Ember.$('#qunit-fixture').text(), 'Tobias Fünke', 'template is rendered');
 });
 
-test('template with data-tag-name should add a template, wrapped in specific tag', function() {
-  Ember.$('#qunit-fixture').html('<script type="text/x-handlebars" data-tag-name="h1" >{{Tobias.firstName}} takes {{Tobias.drug}}</script>');
-
-  Ember.run(function() {
-    Ember.Handlebars.bootstrap(Ember.$('#qunit-fixture'));
-    Tobias = Ember.Object.create({
-      firstName: 'Tobias',
-      drug: 'teamocil'
-    });
-  });
-
-  equal(Ember.$('#qunit-fixture h1').text(), 'Tobias takes teamocil', 'template is rendered inside custom tag');
-});
-
 test('template with data-element-id should add an id attribute to the view', function() {
   Ember.$('#qunit-fixture').html('<script type="text/x-handlebars" data-element-id="application">Hello World !</script>');
 
@@ -84,22 +70,6 @@ test('template without data-element-id should still get an attribute', function(
 
   var id = Ember.$('#qunit-fixture .ember-view').attr('id');
   ok(id && /^ember\d+$/.test(id), "has standard Ember id");
-});
-
-test('template with type text/html should work if LEGACY_HANDLEBARS_TAGS is true', function() {
-  Ember.ENV.LEGACY_HANDLEBARS_TAGS = true;
-
-  try {
-    Ember.$('#qunit-fixture').html('<script type="text/html" data-template-name="funkyTemplate">Tobias Fünke</script>');
-
-    Ember.run(function() {
-      Ember.Handlebars.bootstrap(Ember.$('#qunit-fixture'));
-    });
-
-    ok(Ember.TEMPLATES['funkyTemplate'], 'template with name funkyTemplate available');
-  } finally {
-    Ember.ENV.LEGACY_HANDLEBARS_TAGS = false;
-  }
 });
 
 test('template with type text/x-raw-handlebars should be parsed', function() {

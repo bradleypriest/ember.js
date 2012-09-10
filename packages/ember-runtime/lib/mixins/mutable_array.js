@@ -19,7 +19,7 @@ var EMPTY = [];
 // HELPERS
 //
 
-var get = Ember.get, set = Ember.set, forEach = Ember.ArrayUtils.forEach;
+var get = Ember.get, set = Ember.set, forEach = Ember.EnumerableUtils.forEach;
 
 /**
   @class
@@ -44,6 +44,8 @@ Ember.MutableArray = Ember.Mixin.create(Ember.Array, Ember.MutableEnumerable,
     This is one of the primitives you must implement to support Ember.Array.  You
     should replace amt objects started at idx with the objects in the passed
     array.  You should also call this.enumerableContentDidChange() ;
+
+    @function
 
     @param {Number} idx
       Starting index in the array to replace.  If idx >= length, then append
@@ -219,6 +221,40 @@ Ember.MutableArray = Ember.Mixin.create(Ember.Array, Ember.MutableEnumerable,
   */
   unshiftObjects: function(objects) {
     this.replace(0, 0, objects);
+    return this;
+  },
+
+  /**
+    Reverse objects in the array.  Works just like reverse() but it is
+    KVO-compliant.
+
+    @return {Ember.Array} receiver
+   */
+  reverseObjects: function() {
+    var len = get(this, 'length');
+    if (len === 0) return this;
+    var objects = this.toArray().reverse();
+    this.replace(0, len, objects);
+    return this;
+  },
+
+  /**
+    Replace all the the receiver's content with content of the argument.
+    If argument is an empty array receiver will be cleared.
+
+        var colors = ["red", "green", "blue"];
+        colors.setObjects(["black", "white"]); => ["black", "white"]
+        colors.setObjects([]); => []
+
+    @param {Ember.Array} objects array whose content will be used for replacing
+        the content of the receiver
+    @return {Ember.Array} receiver with the new content
+   */
+  setObjects: function(objects) {
+    if (objects.length === 0) return this.clear();
+
+    var len = get(this, 'length');
+    this.replace(0, len, objects);
     return this;
   },
 

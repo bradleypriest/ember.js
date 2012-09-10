@@ -6,10 +6,15 @@
 /*globals Em:true ENV */
 
 if ('undefined' === typeof Ember) {
+  // Create core object. Make it act like an instance of Ember.Namespace so that
+  // objects assigned to it are given a sane string representation.
+  Ember = {};
+}
+
 /**
   @namespace
   @name Ember
-  @version 0.9.8.1
+  @version 1.0.pre
 
   All Ember methods and functions are defined inside of this namespace.
   You generally should not add new properties to this namespace as it may be
@@ -27,15 +32,9 @@ if ('undefined' === typeof Ember) {
   performance optimizations.
 */
 
-// Create core object. Make it act like an instance of Ember.Namespace so that
-// objects assigned to it are given a sane string representation.
-Ember = {};
-
 // aliases needed to keep minifiers from removing the global context
 if ('undefined' !== typeof window) {
   window.Em = window.Ember = Em = Ember;
-}
-
 }
 
 // Make sure these are set whether Ember was already defined or not
@@ -48,10 +47,10 @@ Ember.toString = function() { return "Ember"; };
 /**
   @static
   @type String
-  @default '0.9.8.1'
+  @default '1.0.pre'
   @constant
 */
-Ember.VERSION = '0.9.8.1';
+Ember.VERSION = '1.0.pre';
 
 /**
   @static
@@ -62,8 +61,9 @@ Ember.VERSION = '0.9.8.1';
   variable before loading Ember to control various configuration
   settings.
 */
-Ember.ENV = 'undefined' === typeof ENV ? {} : ENV;
+Ember.ENV = Ember.ENV || ('undefined' === typeof ENV ? {} : ENV);
 
+Ember.config = Ember.config || {};
 
 // ..........................................................
 // BOOTSTRAP
@@ -86,6 +86,15 @@ Ember.ENV = 'undefined' === typeof ENV ? {} : ENV;
 */
 Ember.EXTEND_PROTOTYPES = (Ember.ENV.EXTEND_PROTOTYPES !== false);
 
+/**
+  @static
+  @type Boolean
+  @default true
+  @constant
+
+  Determines whether Ember logs a full stack trace during deprecation warnings
+*/
+Ember.LOG_STACKTRACE_ON_DEPRECATION = (Ember.ENV.LOG_STACKTRACE_ON_DEPRECATION !== false);
 
 /**
   @static
@@ -192,4 +201,25 @@ if ('undefined' === typeof ember_deprecateFunc) {
   Inside Ember-Metal, simply uses the window.console object.
   Override this to provide more robust logging functionality.
 */
-Ember.Logger = window.console || { log: Ember.K, warn: Ember.K, error: Ember.K };
+Ember.Logger = window.console || { log: Ember.K, warn: Ember.K, error: Ember.K, info: Ember.K, debug: Ember.K };
+
+
+// ..........................................................
+// ERROR HANDLING
+//
+
+Ember.onerror = null;
+
+Ember.handleErrors = function(func, context) {
+  // Unfortunately in some browsers we lose the backtrace if we rethrow the existing error,
+  // so in the event that we don't have an `onerror` handler we don't wrap in a try/catch
+  if ('function' === typeof Ember.onerror) {
+    try {
+      return func.apply(context || this);
+    } catch (error) {
+      Ember.onerror(error);
+    }
+  } else {
+    return func.apply(context || this);
+  }
+};

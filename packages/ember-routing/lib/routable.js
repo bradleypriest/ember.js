@@ -1,4 +1,6 @@
-var get = Ember.get, getPath = Ember.getPath;
+require('ember-routing/resolved_state');
+
+var get = Ember.get;
 
 // The Ember Routable mixin assumes the existance of a simple
 // routing shim that supports the following three behaviors:
@@ -20,10 +22,16 @@ var paramForClass = function(classObject) {
 var merge = function(original, hash) {
   for (var prop in hash) {
     if (!hash.hasOwnProperty(prop)) { continue; }
+    if (original.hasOwnProperty(prop)) { continue; }
+
     original[prop] = hash[prop];
   }
 };
 
+/**
+  @class
+  @extends Ember.Mixin
+*/
 Ember.Routable = Ember.Mixin.create({
   init: function() {
     var redirection;
@@ -57,7 +65,9 @@ Ember.Routable = Ember.Mixin.create({
   */
   stashContext: function(manager, context) {
     var serialized = this.serialize(manager, context);
+    Ember.assert('serialize must return a hash', !serialized || typeof serialized === 'object');
 
+    manager.setStateMeta(this, 'context', context);
     manager.setStateMeta(this, 'serialized', serialized);
 
     if (get(this, 'isRoutable') && !get(manager, 'isRouting')) {
@@ -74,7 +84,7 @@ Ember.Routable = Ember.Mixin.create({
     In general, this will update the browser's URL.
   */
   updateRoute: function(manager, location) {
-    if (location && get(this, 'isLeaf')) {
+    if (get(this, 'isLeafRoute')) {
       var path = this.absoluteRoute(manager);
       location.setURL(path);
     }
@@ -123,7 +133,17 @@ Ember.Routable = Ember.Mixin.create({
     property. This heuristic may change.
   */
   isRoutable: Ember.computed(function() {
-    return typeof this.route === 'string';
+    return typeof get(this, 'route') === 'string';
+  }).cacheable(),
+
+  /**
+    @private
+
+    Determine if this is the last routeable state
+  */
+  isLeafRoute: Ember.computed(function() {
+    if (get(this, 'isLeaf')) { return true; }
+    return !get(this, 'childStates').findProperty('isRoutable');
   }).cacheable(),
 
   /**
@@ -133,8 +153,22 @@ Ember.Routable = Ember.Mixin.create({
     string property.
   */
   routeMatcher: Ember.computed(function() {
-    if (get(this, 'route')) {
-      return Ember._RouteMatcher.create({ route: get(this, 'route') });
+    var route = get(this, 'route');
+    if (route) {
+      return Ember._RouteMatcher.create({ route: route });
+    }
+  }).cacheable(),
+
+  /**
+    @private
+
+    Check whether the route has dynamic segments and therefore takes
+    a context.
+  */
+  hasContext: Ember.computed(function() {
+    var routeMatcher = get(this, 'routeMatcher');
+    if (routeMatcher) {
+      return routeMatcher.identifiers.length > 0;
     }
   }).cacheable(),
 
@@ -149,7 +183,7 @@ Ember.Routable = Ember.Mixin.create({
     var modelType = get(this, 'modelType');
 
     if (typeof modelType === 'string') {
-      return Ember.getPath(window, modelType);
+      return Ember.get(window, modelType);
     } else {
       return modelType;
     }
@@ -213,6 +247,7 @@ Ember.Routable = Ember.Mixin.create({
     var modelClass, routeMatcher, param;
 
     if (modelClass = this.modelClassFor(get(manager, 'namespace'))) {
+      Ember.assert("Expected "+modelClass.toString()+" to implement `find` for use in '"+this.get('path')+"' `deserialize`. Please implement the `find` method or overwrite `deserialize`.", modelClass.find);
       return modelClass.find(params[paramForClass(modelClass)]);
     }
 
@@ -232,6 +267,8 @@ Ember.Routable = Ember.Mixin.create({
   serialize: function(manager, context) {
     var modelClass, routeMatcher, namespace, param, id;
 
+    if (Ember.empty(context)) { return ''; }
+
     if (modelClass = this.modelClassFor(get(manager, 'namespace'))) {
       param = paramForClass(modelClass);
       id = get(context, 'id');
@@ -240,6 +277,53 @@ Ember.Routable = Ember.Mixin.create({
     }
 
     return context;
+  },
+
+  /**
+    @private
+  */
+  resolvePath: function(manager, path) {
+    if (get(this, 'isLeafRoute')) { return Ember.A(); }
+
+    var childStates = get(this, 'childStates'), match;
+
+    childStates = Ember.A(childStates.filterProperty('isRoutable'));
+
+    childStates = childStates.sort(function(a, b) {
+      var aDynamicSegments = get(a, 'routeMatcher.identifiers.length'),
+          bDynamicSegments = get(b, 'routeMatcher.identifiers.length'),
+          aRoute = get(a, 'route'),
+          bRoute = get(b, 'route');
+
+      if (aRoute.indexOf(bRoute) === 0) {
+        return -1;
+      } else if (bRoute.indexOf(aRoute) === 0) {
+        return 1;
+      }
+
+      if (aDynamicSegments !== bDynamicSegments) {
+        return aDynamicSegments - bDynamicSegments;
+      }
+
+      return get(b, 'route.length') - get(a, 'route.length');
+    });
+
+    var state = childStates.find(function(state) {
+      var matcher = get(state, 'routeMatcher');
+      if (match = matcher.match(path)) { return true; }
+    });
+
+    Ember.assert("Could not find state for path " + path, !!state);
+
+    var resolvedState = Ember._ResolvedState.create({
+      manager: manager,
+      state: state,
+      match: match
+    });
+
+    var states = state.resolvePath(manager, match.remaining);
+
+    return Ember.A([resolvedState]).pushObjects(states);
   },
 
   /**
@@ -253,24 +337,25 @@ Ember.Routable = Ember.Mixin.create({
     on the state whose path is `/posts` with the path `/2/comments`.
   */
   routePath: function(manager, path) {
-    if (get(this, 'isLeaf')) { return; }
+    if (get(this, 'isLeafRoute')) { return; }
 
-    var childStates = get(this, 'childStates'), match;
+    var resolvedStates = this.resolvePath(manager, path),
+        hasPromises = resolvedStates.some(function(s) { return get(s, 'hasPromise'); });
 
-    childStates = childStates.sort(function(a, b) {
-      return getPath(b, 'route.length') - getPath(a, 'route.length');
-    });
+    function runTransition() {
+      resolvedStates.forEach(function(rs) { rs.transition(); });
+    }
 
-    var state = childStates.find(function(state) {
-      var matcher = get(state, 'routeMatcher');
-      if (match = matcher.match(path)) { return true; }
-    });
+    if (hasPromises) {
+      manager.transitionTo('loading');
 
-    Ember.assert("Could not find state for path " + path, !!state);
+      Ember.assert('Loading state should be the child of a route', Ember.Routable.detect(get(manager, 'currentState.parentState')));
+      Ember.assert('Loading state should not be a route', !Ember.Routable.detect(get(manager, 'currentState')));
 
-    var object = state.deserialize(manager, match.hash) || {};
-    manager.transitionTo(get(state, 'path'), object);
-    manager.send('routePath', match.remaining);
+      manager.handleStatePromises(resolvedStates, runTransition);
+    } else {
+      runTransition();
+    }
   },
 
   /**
@@ -283,8 +368,10 @@ Ember.Routable = Ember.Mixin.create({
     state of the state it will eventually move into.
   */
   unroutePath: function(router, path) {
+    var parentState = get(this, 'parentState');
+
     // If we're at the root state, we're done
-    if (get(this, 'parentState') === router) {
+    if (parentState === router) {
       return;
     }
 
@@ -307,17 +394,25 @@ Ember.Routable = Ember.Mixin.create({
     }
 
     // Transition to the parent and call unroute again.
-    var parentPath = get(get(this, 'parentState'), 'path');
-    router.transitionTo(parentPath);
+    router.enterState({
+      exitStates: [this],
+      enterStates: [],
+      finalState: parentState
+    });
+
     router.send('unroutePath', path);
   },
 
   /**
-    The `connectOutlets` method will be triggered once a
+    The `connectOutlets` event will be triggered once a
     state has been entered. It will be called with the
     route's context.
   */
-  connectOutlets: Ember.K
-});
+  connectOutlets: Ember.K,
 
-Ember.State.reopen(Ember.Routable);
+  /**
+   The `navigateAway` event will be triggered when the
+   URL changes due to the back/forward button
+  */
+  navigateAway: Ember.K
+});

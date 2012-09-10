@@ -33,8 +33,8 @@ test("should output a data attribute with a guid", function() {
 test("should by default register a click event", function() {
   var registeredEventName;
 
-  ActionHelper.registerAction = function(actionName, eventName) {
-    registeredEventName = eventName;
+  ActionHelper.registerAction = function(actionName, options) {
+    registeredEventName = options.eventName;
   };
 
   view = Ember.View.create({
@@ -51,8 +51,8 @@ test("should by default register a click event", function() {
 test("should allow alternative events to be handled", function() {
   var registeredEventName;
 
-  ActionHelper.registerAction = function(actionName, eventName) {
-    registeredEventName = eventName;
+  ActionHelper.registerAction = function(actionName, options) {
+    registeredEventName = options.eventName;
   };
 
   view = Ember.View.create({
@@ -69,8 +69,8 @@ test("should allow alternative events to be handled", function() {
 test("should by default target the parent view", function() {
   var registeredTarget;
 
-  ActionHelper.registerAction = function(actionName, eventName, target) {
-    registeredTarget = target;
+  ActionHelper.registerAction = function(actionName, options) {
+    registeredTarget = options.target;
   };
 
   view = Ember.View.create({
@@ -110,8 +110,8 @@ test("should by default target the state manager on the controller if it exists"
 test("should allow a target to be specified", function() {
   var registeredTarget;
 
-  ActionHelper.registerAction = function(actionName, eventName, target) {
-    registeredTarget = target;
+  ActionHelper.registerAction = function(actionName, options) {
+    registeredTarget = options.target;
   };
 
   var anotherTarget = Ember.View.create();
@@ -257,7 +257,7 @@ test("should allow bubbling of events from action helper to original parent even
   view = Ember.View.create({
     template: Ember.Handlebars.compile('<a href="#" {{action "edit"}}>click me</a>'),
     click: function() { originalEventHandlerWasCalled = true; },
-    edit: function() { eventHandlerWasCalled = true; return true; }
+    edit: function() { eventHandlerWasCalled = true; }
   });
 
   appendView();
@@ -265,6 +265,24 @@ test("should allow bubbling of events from action helper to original parent even
   view.$('a').trigger('click');
 
   ok(eventHandlerWasCalled && originalEventHandlerWasCalled, "Both event handlers were called");
+});
+
+test("should not bubble an event from action helper to original parent event if it returns false", function() {
+  var eventHandlerWasCalled = false,
+      originalEventHandlerWasCalled = false;
+
+  view = Ember.View.create({
+    template: Ember.Handlebars.compile('<a href="#" {{action "edit"}}>click me</a>'),
+    click: function() { originalEventHandlerWasCalled = true; },
+    edit: function() { eventHandlerWasCalled = true; return false; }
+  });
+
+  appendView();
+
+  view.$('a').trigger('click');
+
+  ok(eventHandlerWasCalled, "The child handler was called");
+  ok(!originalEventHandlerWasCalled, "The parent handler was not called");
 });
 
 test("should be compatible with sending events to a state manager", function() {
@@ -323,7 +341,7 @@ test("should send the view, event and current Handlebars context to the action",
 
   view = Ember.View.create({
     aContext: aContext,
-    template: Ember.Handlebars.compile('{{#with aContext}}<a id="edit" href="#" {{action "edit" target="aTarget"}}>edit</a>{{/with}}')
+    template: Ember.Handlebars.compile('{{#with aContext}}<a id="edit" href="#" {{action edit this target="aTarget"}}>edit</a>{{/with}}')
   });
 
   appendView();
@@ -332,7 +350,7 @@ test("should send the view, event and current Handlebars context to the action",
 
   strictEqual(passedTarget, aTarget, "the action is called with the target as this");
   strictEqual(passedEvent.view, view, "the view passed is the view containing the action helper");
-  deepEqual(passedEvent.context, aContext, "the context passed is the context surrounding the action helper");
+  deepEqual(passedEvent.context, aContext, "the context is passed");
   equal(passedEvent.type, 'click', "the event passed is the event triggered for the action helper");
 });
 
@@ -357,7 +375,7 @@ test("should allow a context to be specified", function() {
 
   view = Ember.View.create({
     people: Ember.A([model]),
-    template: Ember.Handlebars.compile('{{#each person in people}}<button {{action "edit" context="person"}}>edit</button>{{/each}}'),
+    template: Ember.Handlebars.compile('{{#each person in people}}<button {{action edit person}}>edit</button>{{/each}}'),
     edit: function(event) {
       passedContext = event.context;
     }
@@ -368,4 +386,24 @@ test("should allow a context to be specified", function() {
   view.$('button').trigger('click');
 
   equal(passedContext, model, "the action was called with the passed context");
+});
+
+test("should allow multiple contexts to be specified", function() {
+  var passedContexts,
+      models = [Ember.Object.create(), Ember.Object.create()];
+
+  view = Ember.View.create({
+    modelA: models[0],
+    modelB: models[1],
+    template: Ember.Handlebars.compile('<button {{action edit modelA modelB}}>edit</button>'),
+    edit: function(event) {
+      passedContexts = event.contexts;
+    }
+  });
+
+  appendView();
+
+  view.$('button').trigger('click');
+
+  deepEqual(passedContexts, models, "the action was called with the passed contexts");
 });

@@ -26,8 +26,6 @@ Ember.View.states.hasElement = {
 
   setElement: function(view, value) {
     if (value === null) {
-      view.invalidateRecursively('element');
-
       view.transitionTo('preRender');
     } else {
       throw "You cannot set an element to a non-null value when the element is already in the DOM.";
@@ -54,13 +52,18 @@ Ember.View.states.hasElement = {
   destroyElement: function(view) {
     view._notifyWillDestroyElement();
     view.domManager.remove(view);
+    set(view, 'element', null);
+    if (view._scheduledInsert) {
+      Ember.run.cancel(view._scheduledInsert);
+      view._scheduledInsert = null;
+    }
     return view;
   },
 
   empty: function(view) {
-    var _childViews = get(view, '_childViews'), len, idx;
+    var _childViews = view._childViews, len, idx;
     if (_childViews) {
-      len = get(_childViews, 'length');
+      len = _childViews.length;
       for (idx = 0; idx < len; idx++) {
         _childViews[idx]._notifyWillDestroyElement();
       }
@@ -70,9 +73,10 @@ Ember.View.states.hasElement = {
 
   // Handle events from `Ember.EventDispatcher`
   handleEvent: function(view, eventName, evt) {
-    var handler = view[eventName];
-    if (Ember.typeOf(handler) === 'function') {
-      return handler.call(view, evt);
+    if (view.has(eventName)) {
+      // Handler should be able to re-dispatch events, so we don't
+      // preventDefault or stopPropagation.
+      return view.trigger(eventName, evt);
     } else {
       return true; // continue event propagation
     }
@@ -83,9 +87,6 @@ Ember.View.states.inDOM = {
   parentState: Ember.View.states.hasElement,
 
   insertElement: function(view, fn) {
-    if (view._lastInsert !== Ember.guidFor(fn)){
-      return;
-    }
     throw "You can't insert an element into the DOM that has already been inserted";
   }
 };

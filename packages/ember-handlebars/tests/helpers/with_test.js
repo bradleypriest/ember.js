@@ -40,7 +40,7 @@ test("updating the context should update the alias", function() {
 
 test("updating a property on the context should update the HTML", function() {
   Ember.run(function() {
-    Ember.setPath(view, 'person.name', "Yehuda Katz");
+    Ember.set(view, 'person.name', "Yehuda Katz");
   });
 
   equal(view.$().text(), "Señor Engineer: Yehuda Katz", "should be properly scoped after updating");
@@ -82,6 +82,40 @@ test("it should support #with Foo.bar as qux", function() {
   equal(view.$().text(), "updated", "should update");
 });
 
+module("Handlebars {{#with keyword as foo}}");
+
+test("it should support #with view as foo", function() {
+  var view = Ember.View.create({
+    template: Ember.Handlebars.compile("{{#with view as myView}}{{myView.name}}{{/with}}"),
+    name: "Sonics"
+  });
+
+  appendView(view);
+  equal(view.$().text(), "Sonics", "should be properly scoped");
+
+  Ember.run(function() {
+    Ember.set(view, 'name', "Thunder");
+  });
+
+  equal(view.$().text(), "Thunder", "should update");
+});
+
+test("it should support #with foo as bar, then #with bar as qux", function() {
+  var view = Ember.View.create({
+    template: Ember.Handlebars.compile("{{#with view.name as foo}}{{#with foo as bar}}{{bar}}{{/with}}{{/with}}"),
+    name: "caterpillar"
+  });
+
+  appendView(view);
+  equal(view.$().text(), "caterpillar", "should be properly scoped");
+
+  Ember.run(function() {
+    Ember.set(view, 'name', "butterfly");
+  });
+
+  equal(view.$().text(), "butterfly", "should update");
+});
+
 if (Ember.VIEW_PRESERVES_CONTEXT) {
   module("Handlebars {{#with this as foo}}");
 
@@ -95,7 +129,7 @@ if (Ember.VIEW_PRESERVES_CONTEXT) {
     equal(view.$().text(), "Los Pivots", "should be properly scoped");
 
     Ember.run(function() {
-      Ember.setPath(view, 'controller.name', "l'Pivots");
+      Ember.set(view, 'controller.name', "l'Pivots");
     });
 
     equal(view.$().text(), "l'Pivots", "should update");
