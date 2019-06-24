@@ -226,7 +226,7 @@ moduleFor(
       let indexController = this.getController('index');
 
       await this.setAndFlush(indexController, 'a', 1);
-      this.assertCurrentPath('/', 'QP did not update due to being overriden');
+      this.assertCurrentPath('/', 'QP did not update due to being overridden');
 
       await this.setAndFlush(indexController, 'c', false);
       this.assertCurrentPath('/?c=false', 'QP updated with overridden param');

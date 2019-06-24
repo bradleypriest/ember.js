@@ -93,7 +93,7 @@ moduleFor(
       );
     }
 
-    ['@test it can be overriden']() {
+    ['@test it can be overridden']() {
       this.registerHelper('loc', () => 'Yup');
       this.render(`{{loc greeting}}`, {
         greeting: 'Hello Friend',
